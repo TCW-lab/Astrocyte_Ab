@@ -1,0 +1,67 @@
+#!/bin/bash -l
+
+# this file serving as template for creating customized qsub file, 
+# the file name shall be changed properly after customized for job.
+# run 'qsub [-N jobname] myjobname.qsub projectname'
+#
+# All lines starting with "#" are comments
+# All lines starting with "#$" are SGE qsub commands
+# 
+
+#  Specify a project to use (Required for BUMC projects).
+#$ -P tcwlab
+
+#  Join standard output and error to a single file
+#$ -j y #could be 'n' if not to merge error and output
+
+#  Name the log directory where to redirect standard output and error
+#$ -o ../qlog/deseq2 # make sure qlog/ exists and is in the working directory, otherwise give the full path.
+
+#  request enough memory:
+#$ -l mem_per_core=4G
+
+# Specify computing resources
+# can be omp, 
+#$ -pe omp 8 
+
+
+# Now let's keep track of some information just in case anything goes wrong
+echo "=========================================================="
+echo "Starting on : $(date)"
+echo "Running on node : $(hostname)"
+echo "Current directory : $(pwd)"
+echo "Current job ID : $JOB_ID"
+echo "Current job name : $JOB_NAME"
+if [[ -n "${SGE_TASK_ID}" && $SGE_TASK_ID != "undefined" ]]; then
+    echo "Task index number : $SGE_TASK_ID"
+fi
+if [[ -n "${SGE_TASK_LAST}" && $SGE_TASK_LAST != "undefined" ]]; then
+    echo "Total task number : $SGE_TASK_LAST"
+fi
+echo "=========================================================="
+
+
+# Load any modules you might want to use.
+module load R/4.2.1
+
+PATH=/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/Yun_scripts/:$PATH
+
+# now do the main process: 
+PROJ_DIR=/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/ # the current project root
+PROJ_NAME=Astrocyte_Ab
+SCRIPT_DIR=$PROJ_DIR/scripts
+
+# go back to script dir:
+cd $SCRIPT_DIR 
+# assume everything has already been set up before hand:
+mkdir -p $PROJ_DIR/DESEQ2
+CMD="Rscript RNAseq_deseq2_${PROJ_NAME}.R 2>&1 > $PROJ_DIR/DESEQ2/deseq2.out.${JOB_ID}"
+echo $CMD
+eval $CMD
+echo "DESeq2 analysis has been conducted for this project $PROJ_NAME"
+echo "++++++++++++++++++"
+
+
+echo "=========================================================="
+echo "Finished DESEQ2 for $PROJ_NAME on : $(date)"
+echo "=========================================================="

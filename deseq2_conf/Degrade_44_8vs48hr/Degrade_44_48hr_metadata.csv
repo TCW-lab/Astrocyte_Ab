@@ -1,0 +1,5 @@
+﻿Sample_Name,RIN,SEX,CellType,APOE,Individual,GRSnoAPOE,Proportion,Batch,Disease,Age at biopsy,Indiv_ID,Genotype,Treatment,Time,SampleGroup
+TCW1E44-Ast-oAb-48hr,10,Female,Astrocyte,E44,Indiv1,0.00343,1,1,AD,72,1,E44,+,48,8
+TCW2E44-Ast-oAb-48hr,10,Male,Astrocyte,E44,Indiv2,0.00468,1,1,AD,80,2,E44,+,48,8
+TCW3E44-Ast-oAb-48hr,10,Male,Astrocyte,E44,Indiv3,0.00772,1,1,AD,80,3,E44,+,48,8
+TCW4E44-Ast-oAb-48hr,9,Female,Astrocyte,E44,Indiv4,0.0191,1,1,Control,76,4,E44,+,48,8

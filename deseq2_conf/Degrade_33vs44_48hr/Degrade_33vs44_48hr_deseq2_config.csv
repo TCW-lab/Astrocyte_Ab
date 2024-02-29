@@ -1,0 +1,5 @@
+Target,Reference,Comparison, NameSpecifier
+TCW1E44-Ast-oAb-48hr,TCW1E33-Ast-oAb-48hr,RIN+APOE,33vs44(48hr)
+TCW2E44-Ast-oAb-48hr,TCW2E33-Ast-oAb-48hr,RIN+APOE,33vs44(48hr)
+TCW3E44-Ast-oAb-48hr,TCW3E33-Ast-oAb-48hr,RIN+APOE,33vs44(48hr)
+TCW4E44-Ast-oAb-48hr,TCW4E33-Ast-oAb-48hr,RIN+APOE,33vs44(48hr)

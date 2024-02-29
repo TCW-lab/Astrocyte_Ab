@@ -1,0 +1,5 @@
+Target,Reference,Comparison, NameSpecifier
+TCW1E44-Ast-8hr,TCW1E33-Ast-8hr,RIN+APOE,33vs44(Crtl)
+TCW2E44-Ast-8hr,TCW2E33-Ast-8hr,RIN+APOE,33vs44(Crtl)
+TCW3E44-Ast-8hr,TCW3E33-Ast-8hr,RIN+APOE,33vs44(Crtl)
+TCW4E44-Ast-8hr,TCW4E33-Ast-8hr,RIN+APOE,33vs44(Crtl)
