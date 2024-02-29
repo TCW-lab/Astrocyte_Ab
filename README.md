@@ -17,6 +17,9 @@ Bulk RNA sequencing data produced by Azenta. 150 bp paired end reads failed QC t
 8). Deseq2
 9). GSEA
 
+## Progress
+Running Deseq2
+
 Config files for Deseq2 `deseq2_conf`
 
 Metadata `deseq2_conf/Metadat.csv`
