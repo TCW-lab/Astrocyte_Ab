@@ -22,6 +22,8 @@ Data Directory `/projectnb/tcwlab/RawData/RawRNAseq/APOE_Ab/2x100`
 ## Progress
 Finished until Deseq2 analysis, running GSEA.
 
+DESEQ2 R script not working through qsub, likely due to package conflicts. Ran directly on the head code using RStudio.
+
 ## Usage
 
 Original pipeline included both R and qsub files that were developed by Yun: `/projectnb/tcwlab/LabMember/yshen16/git/APOE_RNASeq_pipeline/scripts`. However, customizations are needed at the following code locations:
