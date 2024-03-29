@@ -1,0 +1,60 @@
+#!/bin/bash -l
+
+# this file serving as template for creating customized qsub file, 
+# the file name shall be changed properly after customized for job.
+# run 'qsub [-N jobname] myjobname.qsub projectname'
+#
+# All lines starting with "#" are comments
+# All lines starting with "#$" are SGE qsub commands
+# 
+
+#  Specify a project to use (Required for BUMC projects).
+#$ -P tcwlab
+
+#  Give this job a name
+#$ -N RNASeq_Astrocyte_Ab_fastq_link
+
+#  Join standard output and error to a single file
+#$ -j y #could be 'n' if not to merge error and output
+
+#  Name the log directory where to redirect standard output and error
+#$ -o ../qlog/fqlink # make sure qlog/ exists and is in the working directory, otherwise give the full path.
+
+# Now let's keep track of some information just in case anything goes wrong
+echo "=========================================================="
+echo "Starting on : $(date)"
+echo "Running on node : $(hostname)"
+echo "Current directory : $(pwd)"
+echo "Current job ID : $JOB_ID"
+echo "Current job name : $JOB_NAME"
+echo "=========================================================="
+
+
+# Load any modules you might want to use.
+module load python2/2.7.16
+
+#COMMON_SCRIPT_DIR=/projectnb/tcwlab/LabMember/yshen16/Project/scripts
+PATH=/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/Yun_scripts/:$PATH
+
+# now do the main process: 
+RAW_DIR=/projectnb/tcwlab/RawData/RawRNAseq/APOE_Ab/2x100/00_fastq #Raw seq location  
+YUN_DIR=/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results  # yun's working project location
+
+FASTQ_DIR=${YUN_DIR}/FASTQ
+
+# if FASTQ_DIR not yet exists
+# call the script to create the directory and link the fastq files
+# to it: 
+if [ ! -d $FASTQ_DIR ] 
+then  
+    CMD="filename_map_APOE_Ab.pl $RAW_DIR $FASTQ_DIR"
+    echo $CMD
+    eval $CMD
+else
+    echo "$FASTQ_DIR exists already!"
+fi
+
+
+echo "=========================================================="
+echo "Finished on : $(date)"
+echo "=========================================================="

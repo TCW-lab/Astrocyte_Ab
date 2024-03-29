@@ -1,0 +1,97 @@
+#!/bin/bash -l
+
+# this file serving as template for creating customized qsub file, 
+# the file name shall be changed properly after customized for job.
+# run 'qsub myjobname.qsub'
+#
+# All lines starting with "#" are comments
+# All lines starting with "#$" are SGE qsub commands
+# 
+
+#  Specify a project to use (Required for BUMC projects).
+#$ -P tcwlab
+
+#  Give this job a name
+#$ -N RNASeq_Astrocyte_Ab_multiqc
+
+#  Join standard output and error to a single file
+#$ -j y #could be 'n' if not to merge error and output
+
+#  Name the log directory where to redirect standard output and error
+#$ -o ../qlog/mqc # make sure qlog_mqc/ exists and is in the working directory, otherwise give the full path.
+
+#  request enough memory:
+#$ -l mem_per_core=4G
+
+# Specify computing resources
+# can be omp, 
+##$ -pe omp 8 
+
+# distributing all the fastq files to 20 tasks
+##$ -t 1-40 
+
+# Now let's keep track of some information just in case anything goes wrong
+echo "=========================================================="
+echo "Starting on : $(date)"
+echo "Running on node : $(hostname)"
+echo "Current directory : $(pwd)"
+echo "Current job ID : $JOB_ID"
+echo "Current job name : $JOB_NAME"
+echo "=========================================================="
+
+
+# Load any modules you might want to use.
+#module load python2/2.7.16
+# load module first
+module load python3/3.7.9
+module load multiqc/1.10.1
+
+#COMMON_SCRIPT_DIR=/projectnb/tcwlab/yshen16/Project/scripts
+PATH=/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/Yun_scripts/:$PATH
+
+
+# now do the main process: 
+#RAW_DIR=/projectnb/tcwlab/RawRNAseq/IsogenicAPOE/wpoon228 #Raw seq location
+#JULIA_DIR=/projectnb/tcwlab/Project/IsogenicAPOE/  # orig. project location
+YUN_DIR=/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results #/projectnb/tcwlab/yshen16/Project/IsogenicAPOE/  # yun's working project location
+#cd /projectnb/tcwlab/yshen16/JuliaNote # copied JuliaNote for reference
+
+FASTQ_DIR=${YUN_DIR}/FASTQ/
+MULTIQC_INDIR=${YUN_DIR}/FASTQC
+MULTIQC_OUTDIR=${YUN_DIR}/MULTIQC
+mkdir -p $MULTIQC_OUTDIR
+
+total_file_count=`ls $FASTQ_DIR/*.fastq.gz |wc -l` # this is the expected number of qc files to process
+echo "TOTAL FASTQ File Count=$total_file_count"
+
+# check if fastqc result is already generated or not
+if [ ! -d $MULTIQC_INDIR ] 
+then  
+    echo "It seems STEP1 - fastqc hasn't been run. There is no $MULTIQC_INDIR folder. "
+    exit
+else 
+    fqc_file_count=`ls $MULTIQC_INDIR/*.zip |wc -l`
+    echo "TOTAL FASTQC File Count=$fqc_file_count"
+
+    # if [ $fqc_file_count -ne $total_file_count ] 
+    # then
+    # 	echo "It seems STEP1 - fastqc hasn't been completed for all input fastq sequence files."
+    # 	echo "Please go to $FASTQC_INDIR and check. "
+    #     echo "You can submit job with dependency control:"
+    #     echo "  qsub -hold_jid aRNASeq_Astrocyte_Ab_fastqc RNASeq_Astrocyte_Ab_multiqc"
+    # 	exit
+    # fi
+fi
+
+
+# now call MULTIQC:
+
+mkdir -p $MULTIQC_OUTDIR
+cd $MULTIQC_OUTDIR
+echo "Entered $MULTI_OUTDIR and run multiqc ..."
+multiqc $MULTIQC_INDIR 
+echo "Finished multiqc"
+
+echo "=========================================================="
+echo "Finished on : $(date)"
+echo "=========================================================="

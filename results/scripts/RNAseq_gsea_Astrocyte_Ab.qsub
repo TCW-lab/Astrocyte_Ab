@@ -1,0 +1,75 @@
+#!/bin/bash -l
+
+# this file serving as template for creating customized qsub file, 
+# the file name shall be changed properly after customized for job.
+# run 'qsub [-N jobname] myjobname.qsub projectname'
+#
+# All lines starting with "#" are comments
+# All lines starting with "#$" are SGE qsub commands
+# 
+
+#  Specify a project to use (Required for BUMC projects).
+#$ -P tcwlab
+
+#  Give this job a name
+#$ -N aRNASeq_Astrocyte_Ab_gsea
+# APOE22_00_fastq_100_gsea
+
+#  Join standard output and error to a single file
+#$ -j y #could be 'n' if not to merge error and output
+
+#  Name the log directory where to redirect standard output and error
+#$ -o ../qlog/gsea # make sure qlog/ exists and is in the working directory, otherwise give the full path.
+
+#  request enough memory:
+#$ -l mem_per_core=4G
+
+# Specify computing resources
+# can be omp, 
+#$ -pe omp 8 
+
+# Specify task number
+#$ -t 1-64
+
+
+# Now let's keep track of some information just in case anything goes wrong
+echo "=========================================================="
+echo "Starting on : $(date)"
+echo "Running on node : $(hostname)"
+echo "Current directory : $(pwd)"
+echo "Current job ID : $JOB_ID"
+echo "Current job name : $JOB_NAME"
+if [[ -n "${SGE_TASK_ID}" ]]; then
+    echo "Task index number : $SGE_TASK_ID"
+fi
+if [[ -n "${SGE_TASK_LAST}" ]]; then
+    echo "Total task number : $SGE_TASK_LAST"
+fi
+echo "=========================================================="
+
+
+# Load any modules you might want to use.
+module load R/4.2.1
+
+PATH=/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/Yun_scripts/:$PATH
+
+# now do the main process: 
+
+# check if the deseq result is present:
+PROJ_DIR=/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results # the current project root
+PROJ_NAME=Astrocyte_Ab
+
+# # assume everything has already been set up before hand:
+mkdir -p $PROJ_DIR/GSEA
+# CMD="R CMD BATCH RNAseq_gsea_${PROJ_NAME}.R 2>&1 > $PROJ_DIR/GSEA/gsea.out"
+CMD="Rscript RNAseq_gsea_${PROJ_NAME}.R 2>&1 > $PROJ_DIR/GSEA/gsea.out.${JOB_ID}.${SGE_TASK_ID}"
+echo $CMD
+eval $CMD
+echo "Portion of GSEA analysis has been conducted for this project $PROJ_NAME by Task $SGE_TASK_ID"
+echo "++++++++++++++++++"
+
+echo "==============================================================="
+echo "Finished Task $SGE_TASK_ID for GSEA for $PROJ_NAME on : $(date)"
+echo "==============================================================="
+
+
