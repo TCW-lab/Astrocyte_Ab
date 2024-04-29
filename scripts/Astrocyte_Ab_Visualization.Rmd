@@ -5,16 +5,65 @@ date: "2024-03-04"
 ---
 ```{r}
 deseq2_root <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/DESEQ2/"
-gsea_root <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/GSEA/"
+gsea_root <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/GSEA/"
+
 if(!file.exists(gsea_root)) {
       dir.create(gsea_root, mode="0755", recursive=TRUE)
     }
 
-deseq2_conf_liststr <- "Degrade_33_8vs24hr,Degrade_33_8vs48hr,Degrade_33vs44_24hr,Degrade_33vs44_48hr,Degrade_44_8vs24hr,Degrade_44_8vs48hr,Uptake_33_AbvsCtrl,Uptake_33vs44_Ab,Uptake_33vs44_Ctrl,Uptake_44_AbvsCtrl"
+
+deseq2_conf_liststr <- "Uptake_33_AbvsCtrl,Uptake_44_AbvsCtrl,Uptake_44vs33_Ab,Uptake_44vs33_Ctrl,Degrade_33_24hrvsCtrl,Degrade_44_24hrvsCtrl,Degrade_33_Saturatedvs24hr,Degrade_44_Saturatedvs24hr,Degrade_33_SaturatedvsCtrl,Degrade_44_SaturatedvsCtrl,Degrade_44vs33_24hr,Degrade_44vs33_Saturated"
 
 deseq2_conf_list <- unlist(strsplit(deseq2_conf_liststr, ","))
 
+uptake_conf_list <- deseq2_conf_list[1:4]
+
+degrade_conf_list <- deseq2_conf_list[5:12]
+
 gmt_dir <- "/projectnb/tcwlab/MSigDB/"
+```
+
+```{r}
+library(ggplot2)
+
+#Count DEGs in each comparison
+deg_df <- data.frame()
+
+for (i in 1:length(deseq2_conf_list)) {
+  comparison <- deseq2_conf_list[i]
+  dir <- paste0(deseq2_root, comparison, "/")
+  subdir <- list.dirs(dir)[2]
+  df <- read.csv(paste0(subdir, "/", "Results_GTFAnnotated_NoGeneIDDuplicates.csv"))
+  
+  #p_value threshold
+  df_subset <- df[df$padj <= 0.1, ]
+  
+  deg_df[i, 1] <- comparison
+  deg_df[i, 2] <- nrow(df_subset)
+  deg_df[i, 3] <- nrow(df_subset[df_subset$log2FoldChange > 0, ])
+  deg_df[i, 4] <- nrow(df_subset[df_subset$log2FoldChange < 0, ])
+}
+
+colnames(deg_df)[1] <- "Comparison"
+colnames(deg_df)[2] <- "DEG_Count"
+colnames(deg_df)[3] <- "Up"
+colnames(deg_df)[4] <- "Down"
+
+#Melt data
+plot_df <- tidyr::pivot_longer(deg_df, cols = c(Up, Down), names_to = "DEG", values_to = "value")
+plot_df$DEG <- factor(plot_df$DEG, levels = c("Up", "Down"))
+
+# Change the order of the x-axis groups
+plot_df$Comparison <- factor(plot_df$Comparison, levels = deseq2_conf_list)
+
+ggplot(plot_df, aes(x = Comparison, y = DEG_Count, fill = DEG)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(title = "", x = "Comparison", y = "Number of DEGs (FDR<0.1)") +
+  scale_fill_manual(values = c("blue", "red"), name = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank())
+
 ```
 Initial GSEA
 ```{r}
@@ -56,14 +105,14 @@ run_gsea <- function(x){
     }
     
     #Name each GSEA result by the comparison name
+    gsea_result_filename <- paste0(gsea_subdir, comparison, "_", pathway_df$gmt[i], "_result.rds")
     gsea_stats_filename <- paste0(gsea_subdir, comparison, "_", pathway_df$gmt[i], "_stats.csv")
     gsea_genes_filename <- paste0(gsea_subdir, comparison, "_", pathway_df$gmt[i], "_leadingedges.csv")
-    gsea_pathway_filename <- paste0(gsea_subdir, comparison, "_", pathway_df$gmt[i], "_pathways.csv")
-    
+
     #Save the data frame
+    saveRDS(fgseaRes, paste0(file_dir, gsea_result_filename))
     write.csv(as.data.frame(gsea_stat), gsea_stats_filename, row.names = FALSE, quote = FALSE)
     write.csv(gsea_genes, gsea_genes_filename)
-    write.csv(topPathways, gsea_pathway_filename)
   }
 }
 
@@ -76,17 +125,71 @@ pathway_df <- data.frame(
 
 
 #Two-way plot for uptake experiment
-for (i in 1:10) {
+for (i in 1:length(deseq2_conf_list)) {
   run_gsea(i)
 }
+
 ```
-GSEA Pathway Visualizatiion
+GSEA with astrocyte signature genes
+```{r}
+astro_subtype <- read.csv("/projectnb/tcwlab/RefData/Astrocytes_signatures/astrocyte_signatures_trans_human.csv")
+
+astro_subtype_pathway_list <- list()
+
+#Subgroup each GO
+for (i in 1:length(unique(astro_subtype$type))) {
+  astro_subtype_pathway_list[[i]] <- astro_subtype[astro_subtype$type == unique(astro_subtype$type)[i], ]$Symbol.human
+}
+
+names(astro_subtype_pathway_list) <- unique(astro_subtype$type)
+
+#Takes file index in the deseq2_conf_liststr
+run_gsea_astrocyte <- function(x){
+  comparison <- deseq2_conf_list[x]
+  dir <- paste0(deseq2_root, comparison)
+  subdir <- list.dirs(dir)[2]
+  df <- read.csv(paste0(subdir, "/", "Results_GTFAnnotated_NoGeneIDDuplicates.csv"))
+  
+  outdir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/Pathway/"
+  
+  #Rank data frame by stat
+  df_sorted <- df[order(df$stat),]
+  ranks <- setNames(df_sorted$stat, df_sorted$gene_name)
+  
+  pathways <- astro_subtype_pathway_list
+  
+  #GSEA
+  fgseaRes <- fgsea(pathways = astro_subtype_pathway_list, stats = ranks, scoreType='std',nPermSimple = 10000)
+  
+  #Not including the leading edges
+  gsea_stat <- fgseaRes[, -8]
+  
+  #Leading edges
+  gsea_genes <- data.frame(leadingEdge = sapply(fgseaRes$leadingEdge, paste, collapse = ","))
+  rownames(gsea_genes) <- fgseaRes$pathway
+  
+  file_dir <- paste0(outdir, comparison, "/Astrocyte_subtype_signatures/")
+  if(!file.exists(file_dir)) {
+      dir.create(file_dir, mode="0755", recursive=TRUE)
+  }
+  
+  #Save the data frame
+  write.csv(as.data.frame(gsea_stat), paste0(file_dir, "Astrocyte_subtype_signature_pathway_stats.csv"), row.names = FALSE, quote = FALSE)
+  write.csv(gsea_genes, paste0(file_dir, "Astrocyte_subtype_signature_pathway_leadingedges.csv"))
+}
+
+for (i in 1:length(deseq2_conf_list)) {
+  run_gsea_astrocyte(i)
+}
+
+```
+GSEA Pathway Visualization
 ```{r}
 library(ggplot2)
 
-pathway_df_all <- data.frame()
+top_pathway_df_all <- data.frame()
 
-for (i in 1:10) {
+for (i in 1:length(deseq2_conf_list)) {
   comparison <- deseq2_conf_list[i]
   for (j in 1:nrow(pathway_df)) {
     pathway_res <- paste0(gsea_root, comparison, "/", comparison, "_", pathway_df$gmt[j], "_stats.csv")
@@ -96,14 +199,14 @@ for (i in 1:10) {
     top_pos_pathway <- tail(df_sorted, 10)
   
     top_pathways <- rbind(top_neg_pathway, top_pos_pathway)
-    top_pathways[, 8] <- pathway_df$name[j]
-    top_pathways[, 9] <- deseq2_conf_list[i]
+    top_pathways$Pathway <- pathway_df$name[j]
+    top_pathways$Comparison <- deseq2_conf_list[i]
     
     #Get a single data frame that contains all top pathways from all comparisons
-    pathway_df_all <- rbind(pathway_df_all, top_pathways)
+    top_pathway_df_all <- rbind(top_pathway_df_all, top_pathways)
     
     #Pathway visualization
-    outdir <- '/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/output/Pathway/'
+    outdir <- '/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/Pathway/'
     
     plot_dir <- paste0(outdir, comparison, "/", pathway_df$gmt[j], "/")
     if(!file.exists(plot_dir)) {
@@ -113,35 +216,73 @@ for (i in 1:10) {
     #Bar plot
     bar <- ggplot(top_pathways, aes(x = NES, y = pathway, fill = -log10(padj))) +
       geom_col() +
-      scale_fill_gradientn(colors = c("blue", "red")) +
+      scale_fill_gradientn(colors = c("yellow", "red")) +
+      theme_light() +
       theme(panel.margin=unit(.05, "lines"),  panel.border = element_rect(color = "black", fill = NA, linewidth = 1)) +
-      labs(title = comparison, x = "", y = "Pathway")
+      labs(title = comparison, x = "NES", y = "Pathway")
 
     #Save as pdf
     pdf(paste0(plot_dir, comparison, "_", pathway_df$gmt[j], "_bar_plot.pdf"), height = 10, width = 10)
     print(bar)
     dev.off()
-    
-    #Dotplot
-    dot <- ggplot(top_pathways, aes(x=NES, y=pathway, colour=padj, size=size)) +
-      geom_point() +
-      expand_limits(x=0) +
-      labs(title = comparison, x="NES", y="GO term", colour="p_adj", size="Count")
-  
-    #Save as pdf
-    pdf(paste0(plot_dir, comparison, "_", pathway_df$gmt[j], "_dot_plot.pdf"), height = 10, width = 10)
-    print(dot)
-    dev.off()
   }
 }
 
-colnames(pathway_df_all)[8] <- "Pathway"
-colnames(pathway_df_all)[9] <- "Comparison"
-
 #Example
-tmp <- pathway_df_all[pathway_df_all$Comparison == "Degrade_33_8vs24hr", ]
+df <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/GSEA/Uptake_44_AbvsCtrl/Uptake_44_AbvsCtrl_c2.cp.v2023.1.Hs.symbols.gmt_stats.csv")
 
-head(pathway_df_all)
+ggplot(df[1:10,], aes(x = NES, y = pathway, fill = -log10(padj))) +
+      geom_col() +
+      scale_fill_gradientn(colors = c("yellow", "red")) +
+  theme_light() + 
+      theme(panel.margin=unit(.05, "lines"),  panel.border = element_rect(color = "black", fill = NA, linewidth = 1)) +
+      labs(title = "test", x = "", y = "Pathway")
+```
+GSEA Pathway Visualization (Astrocyte Subtype)
+```{r}
+#Get a single data frame with the astrocyte subtypes
+uptake_astro_subtype_pathway <- data.frame()
+degrade_astro_subtype_pathway <- data.frame()
+
+for (i in 1:length(uptake_conf_list)) {
+  comparison <- uptake_conf_list[i]
+  
+  tmp <- data.frame()
+  
+  tmp <- read.csv(paste0("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/Pathway/", comparison, "/Astrocyte_subtype_signatures/Astrocyte_subtype_signature_pathway_stats.csv"))
+  
+  tmp$Comparison <- comparison
+  
+  uptake_astro_subtype_pathway <- rbind(uptake_astro_subtype_pathway, tmp)
+}
+
+ggplot(uptake_astro_subtype_pathway, aes(x = pathway, y = NES, fill = -log10(padj))) +
+  geom_col() +
+  scale_fill_gradientn(colors = c("yellow", "red")) +
+  facet_grid(. ~ Comparison) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(title = "Astrocyte Subtype Signature Pathways Enrichment across Comparisons", x = "Comparison", y = "NES")
+
+
+for (i in 1:length(degrade_conf_list)) {
+  comparison <- degrade_conf_list[i]
+  
+  tmp <- data.frame()
+  
+  tmp <- read.csv(paste0("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/Pathway/", comparison, "/Astrocyte_subtype_signatures/Astrocyte_subtype_signature_pathway_stats.csv"))
+  
+  tmp$Comparison <- comparison
+  
+  degrade_astro_subtype_pathway <- rbind(degrade_astro_subtype_pathway, tmp)
+}
+
+ggplot(degrade_astro_subtype_pathway, aes(x = pathway, y = NES, fill = -log10(padj))) +
+  geom_col() +
+  scale_fill_gradientn(colors = c("yellow", "red")) +
+  facet_grid(. ~ Comparison) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(title = "Astrocyte Subtype Signature Pathways Enrichment across Comparisons", x = "Comparison", y = "NES")
+
 ```
 Emma Polt Function
 ```{r}
@@ -162,8 +303,6 @@ LeadingEdges<-function(res_fgsea){
     names(l_genes)<-res_fgsea$pathway
     return(l_genes)
   }
-  
- 
 }
 
 overlap_ratio <- function(x, y) {
@@ -269,9 +408,9 @@ emmaplot<-function(res_fgsea,
   }
   
   if(is.null(pathway_names))pathway_names=res_fgsea[order(pval)]$pathway
-  
+
   lelist<-LeadingEdges(res_fgsea[pathway%in%pathway_names])
-  
+
   if(!is.null(show_pathway_of)){
     
     lelist<-lelist[sapply(lelist, function(leadingedges)any(show_pathway_of%in%leadingedges))]
@@ -308,12 +447,19 @@ emmaplot<-function(res_fgsea,
     p <- add_node_label(p = p,label.size=label.size,max.overlaps=max.overlaps)
     
   }else{
-    p <- ggplot(res_fgsea[pathway%in%pathway_names][,x:=1][,y:=1],aes_string(x='x',y='x'))+
-      geom_point(aes_string(size='size',col=col.var))+
-      geom_text_repel(aes(label=pathway))+
-      scale_color_gradient2(low = cols[1],high = cols[max(1:length(cols))],midpoint = 0,limits=c(-abs(as.numeric(as.vector(res_fgsea[pathway%in%pathway_names][,..col.var]))),
-                                                                                                 abs(as.numeric(as.vector(res_fgsea[pathway%in%pathway_names][,..col.var])))))+
-      theme_graph()
+    # p <- ggplot(res_fgsea[pathway%in%pathway_names][,x:=1][,y:=1],aes_string(x='x',y='x'))+
+    #   geom_point(aes_string(size='size',col=col.var))+
+    #   geom_text_repel(aes(label=pathway))+
+    #   scale_color_gradient2(low = cols[1],high = cols[max(1:length(cols))],midpoint = 0,limits=c(-abs(as.numeric(as.vector(res_fgsea[pathway%in%pathway_names][,..col.var]))),
+    #                                                                                abs(as.numeric(as.vector(res_fgsea[pathway%in%pathway_names][,..col.var])))))+
+    #   theme_graph()
+    
+      p <- ggplot(res_fgsea[,x:=1][,y:=1],aes_string(x='x',y='x'))+
+    geom_point(aes_string(size='size',col=col.var))+
+    geom_text_repel(aes(label=pathway))+
+    scale_color_gradient2(low = cols[1],high = cols[max(1:length(cols))],midpoint = 0,limits=c(-abs(as.numeric(as.vector(res_fgsea[,..col.var]))),
+                                                                                 abs(as.numeric(as.vector(res_fgsea[,..col.var])))))+
+    theme_graph()
     
   }
   
@@ -341,7 +487,7 @@ run_emma <- function(x){
   subdir <- list.dirs(dir)[2]
   df <- read.csv(paste0(subdir, "/", "Results_GTFAnnotated_NoGeneIDDuplicates.csv"))
   
-  outdir <- '/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/output/Pathway/'
+  outdir <- '/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/Pathway/'
   
   #Rank data frame by stat
   df_sorted <- df[order(df$stat),]
@@ -372,13 +518,13 @@ run_emma <- function(x){
   }
 }
 
-for (i in 1:10) {
+for (i in 1:length(deseq2_conf_list)) {
   run_emma(i)
 }
 
 
 #Example
-df <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/DESEQ2/Degrade_33_8vs24hr/33(8vs24hr)/Results_GTFAnnotated_NoGeneIDDuplicates.csv")
+df <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/DESEQ2/Degrade_33_24hrvsCtrl/33_24hrvsCtrl/Results_GTFAnnotated_NoGeneIDDuplicates.csv"
 
 #Rank data frame by stat
 df_sorted <- df[order(df$stat),]
@@ -396,7 +542,7 @@ test <- emmaplot(top_pathways, label.size = 1.5)
 ggsave("test.pdf", height = 10, width = 10)
 #emmaplot(res_fgsea_top,show_pathway_of = 'CDK2')
 ```
-Visualization with ClusterProfiler
+Visualization with ClusterProfiler (Not used)
 ```{r}
 #Pathway Visualization with ClusterProfile
 
@@ -423,7 +569,7 @@ pathway_vis <- function(x) {
   subdir <- list.dirs(dir)[2]
   df <- read.csv(paste0(subdir, "/", "Results_GTFAnnotated_NoGeneIDDuplicates.csv"))
   
-  outdir <- '/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/output/Pathway/'
+  outdir <- '/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/Pathway/'
   
   #Obtain log2FC rank
   gene_list <- df$log2FoldChange
@@ -441,7 +587,7 @@ pathway_vis <- function(x) {
 
   
   #Dotplot for top 10 enriched pathways
-  dotplot_dir <- paste0("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/output/Pathway/", comparison, "/")
+  dotplot_dir <- paste0("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/Pathway/", comparison, "/")
   if(!file.exists(dotplot_dir)) {
         dir.create(dotplot_dir, mode="0755", recursive=TRUE)
   }
@@ -454,7 +600,7 @@ pathway_vis <- function(x) {
   dev.off()
   
   #Emma Plot for top 10 enriched pathways
-  emma_dir <- paste0("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/output/Pathway/", comparison, "/")
+  emma_dir <- paste0("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/Pathway/", comparison, "/")
   if(!file.exists(emma_dir)) {
         dir.create(emma_dir, mode="0755", recursive=TRUE)
   }
@@ -493,25 +639,95 @@ gse <- gseGO(geneList=gene_list,
 require(DOSE)
 dotplot(gse, showCategory=10, split=".sign") + facet_grid(.~.sign)
 ```
-Table for pathway overlap
+Pathway overlap 
 ```{r}
-# Find pathways that are overlapped between comparisons
+# Find only c2 pathways that are overlapped between comparisons
+library(ggplot2)
 
-uptake_subset <- pathway_df_all[pathway_df_all$Comparison == deseq2_conf_list[7:10], ]
+#Get all pathways from each gmt for each comparison
+pathway_all_df <- data.frame()
 
-uptake_duplicated_pathway <- uptake_subset[duplicated(uptake_subset$pathway) | duplicated(uptake_subset$pathway, fromLast = TRUE), ]
+for (i in 1:length(degrade_conf_list)) {
+  comparison <- deseq2_conf_list[i]
+  gsea_dir <- paste0(gsea_root, comparison, "/")
 
-uptake_duplicated_pathway_sorted <- uptake_duplicated_pathway[order(uptake_duplicated_pathway$pathway, uptake_duplicated_pathway$Comparison), ]
+  temp <- readRDS(paste0(gsea_dir, comparison, "_c2.cp.v2023.1.Hs.symbols.gmt_stats.rds"))
+  temp_df <- data.frame()
+  temp_df <- rbind(temp_df, temp)
+  temp_df$Comparison <- comparison
+  
+  pathway_all_df <- rbind(pathway_all_df, temp_df)
+}
 
-write.csv(uptake_duplicated_pathway_sorted, "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/GSEA/Overlapped Pathways in Astrocyte Amyloid Uptake.csv")
 
-degrade_subset <- pathway_df_all[pathway_df_all$Comparison == deseq2_conf_list[1:6], ]
+# Takes a vector of indecies of deseq config files.
+# The first indices will be the reference, where all the pathways that are overlapped will be selected based on that.
+get_overlap_pathway <- function(x){
+  
+  df <- pathway_all_df[pathway_all_df$Comparison %in% deseq2_conf_list[x], ]
+  
+  #Subset overlaped pathways based on p_value threshold 0.1, absolute value of NES threshold 0.5
+  df_subset <- df[abs(df$NES) >= 0.5, ]
+  
+  #Extract the pathways that are overlapped with reference comparison
+  df_ref <- df_subset[df_subset$Comparison == deseq2_conf_list[x][1], ]
+  
+  #Sort the overlapped pathways by abs(NES)
+  df_ref_sorted <- df_ref[order(abs(df_ref$NES)), ]
+  
+  #Save the pathways that are present in all comparisons
+  overlapped_pathway <- data.frame()
+  
+  for (i in unique(df_ref_sorted$pathway)) {
+    temp <- df_subset[df_subset$pathway == i, ]
+    if (nrow(temp) == length(x)) {
+      overlapped_pathway <- rbind(overlapped_pathway, temp)
+    }
+  }
+  
+  return(overlapped_pathway)
+}
 
-degrade_duplicated_pathway <- degrade_subset[duplicated(degrade_subset$pathway) | duplicated(degrade_subset$pathway, fromLast = TRUE), ]
+out_dir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/Pathway/Overlapped_Pathways/"
 
-degrade_duplicated_pathway_sorted <- degrade_duplicated_pathway[order(degrade_duplicated_pathway$pathway), ]
+#Pathways in 44 that are overlapped in 33 upon treatment
+df <- get_overlap_pathway(c(1, 2))
 
-#write.csv(degrade_duplicated_pathway_sorted, "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/GSEA/Overlapped Pathways in Astrocyte Amyloid Degrade.csv")
+#Pathways in 33_Saturatedvs24hr that are overlapped in 33_Saturatedvs8hr
+get_overlap_pathway(c(7, 9)) # No overlaps
+
+#Pathways in 44_Saturatedvs24hr that are overlapped in 44_Saturatedvs8hr
+get_overlap_pathway(c(8, 10)) # No overlaps
+
+#Pathways in 44_24hrvs8hr that are overlapped in 33_24hrvs8hr
+df <- get_overlap_pathway(c(5, 6))
+
+#Pathways in 44_Saturatedvs24hr that are overlapped in 33_Saturatedvs24hr
+get_overlap_pathway(c(9, 10)) # No overlaps
+
+#Pathways in 44_24hrvs8hr that are overlapped in 33_24hrvs8hr
+df <- get_overlap_pathway(c(7, 8))
+
+# Change the order of the x-axis groups
+df$Comparison <- factor(df$Comparison, levels = c("Degrade_33_Saturatedvs24hr", "Degrade_44_Saturatedvs24hr"))
+
+#Plot heatmap for the top 20 overlapped pathways, one asterisk for p values that are less than 0.1 and two asterisks for p values that are less than 0.05
+p <- ggplot(df[1:20, ], aes(x = Comparison, y = pathway, fill = NES)) + 
+  geom_tile() +
+  geom_text(aes(label = ifelse(padj < 0.1 & padj > 0.05, "*", "")), color = "black") +  
+  geom_text(aes(label = ifelse(padj < 0.05, "**", "")), color = "black") +  
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  xlab(NULL) + ylab(NULL) +
+  scale_fill_gradientn(colors = c("yellow", "red")) +
+  coord_equal()
+ggsave(paste0(out_dir, "Degrade_44vs33_48vs24hr_overlapped_pathway_bar_plot.pdf"), plot = p, width = 10, height = 10)
+
+#Emma plot for the top 80 overlapped pathways
+emma_df <- df[df$Comparison == "Degrade_33_Saturatedvs24hr", ]
+emma <- emmaplot(emma_df[1:80, ], label.size = 1.5)
+ggsave(paste0(out_dir, "Degrade_44vs33_48vs24hr_overlapped_pathway_emma_plot.pdf"), plot = emma, height = 10, width = 10)
+
+deseq2_conf_list
 ```
 Volcano Plot
 ```{r}
@@ -524,7 +740,7 @@ volcano <- function(df, title){
   p <- EnhancedVolcano(df,
   lab = df$gene_name,
   x = 'log2FoldChange',
-  y = 'pvalue',
+  y = 'padj',
   title = title,
   pointSize = c(ifelse(df$log2FoldChange>3, 3, 1)),
   pCutoff = 0.1 ,
@@ -545,25 +761,27 @@ volcano <- function(df, title){
   caption = bquote(~Log[2]~ "fold change cutoff, 0.5; p-value cutoff, 0.1"))
 }
 
-for (i in 1:10) {
+for (i in 1:length(deseq2_conf_list)) {
   comparison <- deseq2_conf_list[i]
   dir <- paste0(deseq2_root, comparison)
   subdir <- list.dirs(dir)[2]
   df <- read.csv(paste0(subdir, "/", "Results_GTFAnnotated_NoGeneIDDuplicates.csv"))
 
-  filename <- paste0("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/output/volcano_plot", comparison, "_Volcano Plot.pdf")
+  filename <- paste0("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/volcano_plot/", comparison, "_Volcano Plot.pdf")
   pdf(filename, height = 10, width = 10)
   print(volcano(df, comparison))
   dev.off()
 }
 
 ```
-Heatmap
+Gene Heatmap
 ```{r}
 #Heat map
 library(tidyr)
 library(dplyr)
+install.packages("pheatmap")
 library(pheatmap)
+install.packages("ComplexHeatmap")
 library(ComplexHeatmap)
 library(RColorBrewer)
 
@@ -659,7 +877,7 @@ make_pca <- function(x){
     geom_point(aes(y = pct_cum)) +
     labs(x = "Principal component", y = "Percent variance explained", title = paste0(comparison, " Top PCs"))
   
-  output_subdir <- paste0("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/output/PCA/", comparison, "/")
+  output_subdir <- paste0("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/PCA/", comparison, "/")
     if(!file.exists(output_subdir)) {
         dir.create(output_subdir, mode="0755", recursive=TRUE)
     }
@@ -740,178 +958,399 @@ matrix_data <- as.matrix(df[, -1])
 # Perform the PCA
 pca_result <- prcomp(t(matrix_data))
 
-# Create autoplot with loadings for the top feature
-autoplot(pca_result, data = pc_scores, colour = 'Sample', label = TRUE, shape = FALSE, label.size = 3, loadings = TRUE, loadings.label = TRUE, scale = 0)
+pc_scores <- pca_result$x
 
-autoplot(pca_result, data = pc_scores, colour = 'Sample', label = TRUE, shape = FALSE, label.size = 3, loadings = TRUE, loadings.label = TRUE, scale = 0, loadings = TRUE, loadings.colour = 'blue', loadings.label = TRUE, loadings.label.size = 3)
+pc_scores <- pc_scores %>% 
+  # convert to a tibble retaining the sample names as a new column
+  as_tibble(rownames = "sample")
+
+pc_scores %>% 
+  # create the plot
+  ggplot(aes(x = PC1, y = PC2)) +
+  geom_point()
+
+pc_loadings <- pca_result$rotation
+
+pc_loadings <- pc_loadings %>% 
+  as_tibble(rownames = "gene")
+
+top_genes <- pc_loadings %>% 
+  # select only the PCs we are interested in
+  dplyr::select(gene, PC1, PC2) %>%
+  # convert to a "long" format
+  pivot_longer(matches("PC"), names_to = "PC", values_to = "loading") %>% 
+  # for each PC
+  group_by(PC) %>% 
+  # arrange by descending order of loading
+  arrange(desc(abs(loading))) %>% 
+  # take the 10 top rows
+  slice(1:10) %>% 
+  # pull the gene column as a vector
+  pull(gene) %>% 
+  # ensure only unique genes are retained
+  unique()
+
+top_loadings <- pc_loadings %>% 
+  filter(gene %in% top_genes)
+
+ggplot(data = top_loadings) +
+  geom_segment(aes(x = 0, y = 0, xend = PC1, yend = PC2), 
+               arrow = arrow(length = unit(0.1, "in"))) +
+  geom_text(aes(x = PC1, y = PC2, label = gene),
+            nudge_y = 0.005, size = 3) +
+  scale_x_continuous(expand = c(0.02, 0.02))
+
+
 ```
-WGCNA
+WGCNA soft threshold test
 ```{r}
 #WGCNA
 #BiocManager::install("WGCNA")
 library(rlang, lib = "/projectnb/tcwlab/LabMember/mwu/R/")
-library(WGCNA, lib = "/projectnb/tcwlab/LabMember/mwu/R/")
-library(flashClust)
-library(curl)
+library("ggplot2") # For PCA plot
+library("WGCNA") # For network analysis
+library("DESeq2") # For data transformation
+#BiocManager::install("sva")
+library("sva") # For batch/covariate correction
+#install.packages('RColorBrewer', lib = "/projectnb/tcwlab/LabMember/mwu/R/")
+library("GSA") # To extract gene sets
+library("erer") # For list writing
+library("car") # For Levene's homogeneity test
+library("bestNormalize") # for data transformation
+library("RColorBrewer") # For PCA color pallette
 
 
-plot_WGCNA_threshold <- function(x) {
-  comparison <- deseq2_conf_list[x]
-  dir <- paste0(deseq2_root, comparison)
-  subdir <- list.dirs(dir)[2]
-  df <- read.csv(paste0(subdir, "/", "deseq2_normalized_counts.csv"))
+plot_WGCNA_threshold <- function() {
+  df <- read.table("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/FeatureCount/featureCounts_clean.txt", header = TRUE)
   
-  outdir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/output/WGCNA"
+  outdir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/"
   
-  #Transpose the data
-  t_df <- as.data.frame(t(df[, -1]))
-  colnames(t_df) <- rownames(df)
+  #Filter genes based on expression levels.
+  df_filtered <- df[rowSums(df[,-1]>1)>=8*0.95,]
   
-  #Quality QC, default settings are used here
-  gsg <-goodSamplesGenes(t_df)
+  # Filter genes using WGCNA function collapseRows, which finds rows with duplicate gene names and collapses them using two methods. For gene names duplicated exactly 2 times, the gene id with the maximum mean counts across samples is selected. For gene names duplicated 3 or more times, the gene id with the highest connectivity according to a signed weighted correlation network adjacency matrix among the corresponding rows is selected. 
+  df_filtered_by_gene <- collapseRows(df_filtered[, -1], df_filtered[, 1], rownames(df_filtered), method="MaxMean", connectivityBasedCollapsing=TRUE, connectivityPower=1)
   
-  file_dir <- paste0("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/output/WGCNA/", comparison, "/")
-  if(!file.exists(file_dir)) {
-        dir.create(file_dir, mode="0755", recursive=TRUE)
-  }
+  df_filtered_by_gene <- df_filtered[df_filtered_by_gene$selectedRow, ]
   
-  write.csv(summary(gsg), paste0(file_dir, comparison, "_QC_summary.csv"))
+  # Normalize the filtered expression data using a variance stabilizing transformation, a DESq2 function:
+  df_matrix <- data.matrix(df_filtered_by_gene[, -1]) #Exclude the first column, which is the gene names
+  df_matrix <- ceiling(df_matrix) # Round values up.
   
-  #Cluster samples based on distance
-  sampleTree <- hclust(dist(t_df), method = "average")
+  df_matrix <- varianceStabilizingTransformation(df_matrix)
+  
+  df_final <- as.data.frame(df_matrix) # Turn matrix back into data frame.
+  df_final <- cbind(df_filtered_by_gene[, 1], df_final) # Add the gene names back to the matrix
+  colnames(df_final)[1] <- "gene_name"
+  
+  
+  # Filter data based on variance, choosing the top 90% most variable genes:
+  df_final$variance <- apply(df_final[,- 1], 1, var) # Create a column of calculated variances.
+  df_final_var <- df_final[df_final$variance >= quantile(df_final$variance, c(.10)), ] # Use the 10% quantile as the cut-off.
+  df_final_var$variance <- NULL # Remove the variance column.
+  
+  write.csv(df_final_var, paste0(outdir, "expression_filtered.csv"), row.names = FALSE, quote = FALSE)
+  
+  # Adjust for covariates using the "comBat" function:
+  
+  meta <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/deseq2_conf/Metadata.csv")
+  
+  modcombat <- model.matrix(~1, data=meta)
+  df_matrix_combat <- data.matrix(df_final_var[,-1])
+  
+  #Corrected for RIN
+  df_combat <- ComBat(dat=df_matrix_combat, batch = meta$RIN, mod=modcombat, par.prior=TRUE, prior.plots=FALSE)
+  
+  # Transpose corrected data so the rows are samples and columns are genes
+  df_final_t <- as.data.frame(t(df_combat))
+  names(df_final_t) <- df_final_var[, 1]
 
+  #Save data frame
+  write.csv(df_final_t, paste0(outdir, "normalized_expression.csv"))
+  
+  h_tree <- hclust(dist(df_final_t), method="average")
+  
+  pca_res <- prcomp(df_final_t, scale.=FALSE, center=FALSE)# Perform PCA
+  pca_df <- as.data.frame(pca_res$x) # Extract results
+  pca_prct <- round(pca_res$sdev / sum(pca_res$sdev) * 100, 2) # Calculate PC %s
+  pca_prct <- paste0(colnames(pca_df), " (", paste(as.character(pca_prct), "%)")) # Create PC axis labels
+  
+  pca_plot <- ggplot(data=pca_df, aes(x=PC1, y=PC2, color=rownames(df_final_t))) + 
+    geom_point(size=2) + xlab(pca_prct[1]) + ylab(pca_prct[2]) + 
+    theme(legend.title=element_blank()) + ggtitle("PCA")
+  
   #Save as pdf
-  pdf(paste0(file_dir, comparison, "_sample_cluster.pdf"), height = 10, width = 10)
-  print(plot(sampleTree, main = paste0(comparison, " Sample Clusters"), sub="", xlab=""))
+  pdf(paste0(outdir,  "pca.pdf"), height = 10, width = 10)
+  print(pca_plot)
   dev.off()
   
-  #Calculates networks from multiple soft threshold values
-  spt <- pickSoftThreshold(t_df)
+  # Test for soft threshold
+  powers <- c(1:30)
+  sft <- pickSoftThreshold(df_final_t, dataIsExpr=TRUE, powerVector=powers, verbose=5, corFnc="bicor", corOptions="use='p'")
   
-  #Plot the R^2 as a function of soft threshold
-  sft_r2 <- ggplot(spt$fitIndices, aes(x = Power, y = SFT.R.sq, label = Power)) + 
-  geom_hline(yintercept = 0.8, colour = "red") +
-  geom_text(colour = "red") +
-  labs(title = paste0(comparison, " Scale independence"), x = "Soft Threshold (power)", y = "Scale Free Topology Model Fit,signed R^2")
+  plot_df <- sft$fitIndices
+  
+  sft_r2 <- ggplot(plot_df, aes(x = Power, y = -sign(slope)*SFT.R.sq)) +
+    geom_text(aes(label = powers), color = "red", size = 3) +
+    geom_hline(yintercept = 0.90, color = "red") +
+    labs(x = "Soft threshold (power)", y = "Scale-free topology fit (R^2)", 
+         title = paste0("Scale independence"))
+  
+  sft_k <- ggplot(plot_df, aes(x = Power, y = mean.k.)) +
+    geom_text(aes(label = powers), color = "red", size = 3) +
+    labs(x = "Soft threshold (power)", y = "Mean connectivity", 
+         title = paste0("Mean Connectivity"))
   
   #Save as pdf
-  pdf(paste0(file_dir, comparison, "_soft_scale.pdf"), height = 10, width = 10)
+  pdf(paste0(outdir, "soft_scale.pdf"), height = 10, width = 10)
   print(sft_r2)
   dev.off()
-  
-  #Plot mean connectivity as a function of soft threshold
-  sft_k <- ggplot(spt$fitIndices, aes(x = Power, y = mean.k., label = Power)) + 
-  geom_text(colour = "red") +
-  labs(title = paste0(comparison, " Mean connectivity"), x = "Soft Threshold (power)", y = "Mean Connectivity")
-  
+ 
   #Save as pdf
-  pdf(paste0(file_dir, comparison, "_mean_connectivity.pdf"), height = 10, width = 10)
+  pdf(paste0(outdir, "mean_connectivity.pdf"), height = 10, width = 10)
   print(sft_k)
   dev.off()
 }
 
-for (i in 2:10) {
-  plot_WGCNA_threshold(i)
-}
+plot_WGCNA_threshold()
+```
+Construct the WGCNA TOM
+```{r}
 
+# Determine the soft threshold based on maximum r2 and first minimum connectivity
+sft_list <- c(19, 15, 11, 10, 30, 12, 16, 25, 17, 18, 13, 18)
 
-wgcna_dendro <- function(x) {
+wgcna_tom <- function(x) {
   comparison <- deseq2_conf_list[x]
-  dir <- paste0(deseq2_root, comparison)
-  subdir <- list.dirs(dir)[2]
-  df <- read.csv(paste0(subdir, "/", "deseq2_normalized_counts.csv"))
+  wgcna_dir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/"
   
-  #Transpose the data
-  t_df <- as.data.frame(t(df[, -1]))
-  colnames(t_df) <- rownames(df)
+  #Read the normalized expression data
+  df <- read.csv(paste0(wgcna_dir, comparison, "/", comparison, "_normalized_expression.csv"))
   
-  outdir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/output/WGCNA"
+  outdir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/"
   
   softPower <- sft_list[i]
-  adjacency <- adjacency(t_df, power = softPower)
   
-  #Create the Topological Dissimilarity Matrix
-  TOM.dissimilarity <- 1-TOMsimilarity(adjacency)
+  TOM <-  blockwiseModules(df[, -1], maxBlockSize=10000, minBlockSize=0, minModuleSize=30,
+                                 corType="bicor", maxPOutliers=0.10, pearsonFallback="individual",
+                                 power=softPower, networkType="signed", TOMType="signed", reassignThreshold=1E-8,
+                                 mergeCutHeight=0.3, deepsplit=2, numericLabels=TRUE, verbose=4)
   
-  #Cluster the dissimilarity matrix
-  geneTree <- hclust(as.dist(TOM.dissimilarity), method = "average")
+  file_dir <- paste0(outdir, comparison, "/")
   
-  file_dir <- paste0("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/output/WGCNA/", comparison, "/")
-  
-  #Plot dendrogram
-  pdf(paste0(file_dir, comparison, "_dendrogram.pdf"), height = 10, width = 10)
-  print(plot(geneTree, xlab="", sub="", main = "Gene clustering on TOM-based dissimilarity", 
-labels = FALSE, hang = 0.04))
-  dev.off()
-  
-  #To identify modules
-  Modules <- cutreeDynamic(dendro = geneTree, distM = TOM.dissimilarity, deepSplit = 2, pamRespectsDendro = FALSE, minClusterSize = 30)
-  #Assign colors to each module
-  ModuleColors <- labels2colors(Modules)
-  
-  #Plot dendrogram
-  pdf(paste0(file_dir, comparison, "_module_dendrogram.pdf"), height = 10, width = 10)
-  print(plotDendroAndColors(geneTree, ModuleColors,"Module",
-  dendroLabels = FALSE, hang = 0.03,
-  addGuide = TRUE, guideHang = 0.05,
-  main = "Gene dendrogram and module colors"))
-  dev.off()
-  
-  #Identify eigengenes
-  MElist <- moduleEigengenes(expression.data, colors = ModuleColors) 
-  MEs <- MElist$eigengenes 
-  
-  write.csv(MEs, paste0(file_dir, comparison, "_eigengenes.csv"))
+  saveRDS(TOM, paste0(outdir, comparison, "_TOM.rds"))
 }
 
 
-df <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/DESEQ2/Degrade_33_8vs24hr/33(8vs24hr)/deseq2_normalized_counts.csv")
-
-sft_list <- c(14, 14, 14, 14, 16, 18, 18, 14, 14, 12)
-
-t_df <- as.data.frame(t(df[, -1]))
-colnames(t_df) <- rownames(df)
-
-#Build the adjacency matrix
-softPower <- 14
-adjacency <- adjacency(t_df, power = softPower)
-
-TOM_astro <-  blockwiseModules(t_df, maxBlockSize=10000, minBlockSize=0, minModuleSize=30,
-                                 corType="bicor", maxPOutliers=0.10, pearsonFallback="individual",
-                                 power=14, networkType="signed", TOMType="signed", reassignThreshold=1E-8,
-                                 mergeCutHeight=0.3, deepsplit=2, numericLabels=TRUE, verbose=4)
-
-#Create the Topological Dissimilarity Matrix
-TOM.dissimilarity <- 1-TOMsimilarity(adjacency)
-
-#Cluster the dissimilarity matrix
-geneTree <- hclust(as.dist(TOM.dissimilarity), method = "average") 
-
-#Plot dendrogram
-plot(geneTree, xlab="", sub="", main = "Gene clustering on TOM-based dissimilarity", 
-labels = FALSE, hang = 0.04)
-
-#To identify modules
-Modules <- cutreeDynamic(dendro = geneTree, distM = TOM.dissimilarity, deepSplit = 2, pamRespectsDendro = FALSE, minClusterSize = 30)
-#Assign colors to each module
-ModuleColors <- labels2colors(Modules)
-
-#Plot dendrogram
-plotDendroAndColors(geneTree, ModuleColors,"Module",
-dendroLabels = FALSE, hang = 0.03,
-addGuide = TRUE, guideHang = 0.05,
-main = "Gene dendrogram and module colors")
-
-#Identify eigengenes
-MElist <- moduleEigengenes(expression.data, colors = ModuleColors) 
-MEs <- MElist$eigengenes 
-
-for (i in 1:10) {
+for (i in 1:length(deseq2_conf_list)) {
   wgcna_dendro(i)
 }
 ```
-
+WGCNA dendrogram plot
 ```{r}
 
+tom <- readRDS("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/TOM.rds")
 
+df <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/normalized_expression.csv")
+
+# Label modules using colors, grey color is reserved for unassigned genes.
+module_color <- labels2colors(tom$colors, zeroIsGrey=TRUE)
+names(module_color)<-names(tom$colors)
+
+# Calculate module eigengenes, which represent the expression profile of their respective module. They are the first PCs.
+ME <- tom$MEs
+# Assign colors to MEs
+ME_color <- moduleEigengenes(df[, -1], module_color)$eigengenes
+# Order MEs by hierarchical clustering
+ME <- orderMEs(ME_color)
+
+# Plot the cluster tree of module eigengenes
+plotEigengeneNetworks(ME, "Astrocytes, with KOs \nModule eigengene correlation dendrogram", plotDendrograms=TRUE, plotHeatmaps=FALSE, plotAdjacency=FALSE, excludeGrey=TRUE, marDendro=c(1,4,4,1))
+
+# Merge modules based on enrichment validation:
+module_merged <- mergeCloseModules(df[, -1], module_color, cutHeight=0.6, verbose=4)
+
+# Combine old module colors with merged module colors for plotting
+color_combined <- cbind(module_color, module_merged$colors)
+
+outdir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/"
+
+# Plot dendrogram with both original module color and merged colors
+pdf(paste0(outdir, "Module_Dendrogram_combined_colors.pdf"), width = 10, height = 10)
+plotDendroAndColors(tom$dendrograms[[1]], main=paste("Cluster Module Dendrogram with original and merged colors"), colors=color_combined, groupLabels=c("Module colors", "Merged colors"), hang=0.03, dendroLabels=FALSE, addGuide=TRUE, guideHang=0.05)
+dev.off()
+
+# Plot dendrogram with only the merged module color
+pdf(paste0(outdir, "Module_Dendrogram_merged_colors.pdf"), width = 10, height = 10)
+plotDendroAndColors(tom$dendrograms[[1]], main=paste("Cluster Module Dendrogram with merged colors"), colors=module_merged$colors, groupLabels=c("Merged colors"), hang=0.03, dendroLabels=FALSE, addGuide=TRUE, guideHang=0.05)
+dev.off()
+
+# Plot the eigengene correlation from original module
+pdf(paste0(outdir, "Module_Eigengene_Correlation_Dendrogram.pdf"), width = 10, height = 10)
+plotEigengeneNetworks(ME, "Module Eigengene Correlation Dendrogram", plotDendrograms=TRUE, plotHeatmaps=FALSE, plotAdjacency=FALSE, excludeGrey=TRUE, marDendro=c(1,4,4,1))
+dev.off()
+
+# Plot the eigengene correlation from merged module
+pdf(paste0(outdir, "Merged_Module_Eigengene_Correlation_Dendrogram.pdf"), width = 10, height = 10)
+plotEigengeneNetworks(module_merged$newMEs, "Merged Module Eigengene Correlation Dendrogram", plotDendrograms=TRUE, plotHeatmaps=FALSE, plotAdjacency=FALSE, excludeGrey=TRUE, marDendro=c(1,4,4,1))
+dev.off()
+
+# Plot the eigengene heatmap
+pdf(paste0(outdir, "Merged_Module_Eigengene_Correlation_Heatmap.pdf"), width = 10, height = 10)
+plotEigengeneNetworks(module_merged$newMEs, "Merged Module Eigengene Correlation Heatmap", plotHeatmaps=TRUE, plotDendrograms=FALSE, plotAdjacency=FALSE, excludeGrey=FALSE, marHeatmap=c(8,10,3,3), xSymbols=names(module_merged$newMEs), ySymbols=names(module_merged$newMEs))
+dev.off()
+
+#Filtered input expression data from Feature Count
+df_filtered <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/expression_filtered.csv")
+
+# Reformat the module color names (remove "ME")
+for (i in 1:length(colnames(ME))) {
+  colnames(ME)[i] <- substr(colnames(ME)[i], start = 3, stop = nchar(colnames(ME)[i]))
+}
+
+library(data.table)
+
+# Save gene id and module color infromation from TOM into a table
+modules_df<-data.table(gene_id=names(tom$colors),module=module_color)
+
+# Replace module color with ME group, factor being the order of the ME group (ordered by clustering)
+modules_df[,module:=factor(module,levels = colnames(ME),'ME')]
+
+# Merge the ME group with the expression data on gene_id
+modules_df<-merge(modules_df, df_filtered, by.x = 'gene_id', by.y = 'gene_name')
+
+# Order by ME group
+modules_df<-modules_df[order(module)]
+```
+
+```{r}
+#Convert to gene ID to EnsembleID
+
+library(biomaRt)
+
+refSeq_Ensembl <- function(nm.accessions){
+  
+  ensembl <- useMart("ensembl",dataset="hsapiens_gene_ensembl")
+  
+  getBM(filters="ensembl_gene_id",
+    attributes=c("ensembl_gene_id", "hgnc_symbol"),
+    values=nm.accessions, mart=ensembl)
+}
+
+for (i in 1:nrow(modules_df)) {
+    modules_df$gene_id[i] <- unlist(strsplit(modules_df$gene_id[i], "\\."))[1]
+  }
+
+EnsembleID_df <- refSeq_Ensembl(modules_df$gene_id)
+
+for (i in 1:nrow(modules_df)) {
+  modules_df$gene_name[i] <- EnsembleID_df$hgnc_symbol[i]
+}
+
+write.csv(modules_df, "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/Gene-Module.csv", row.names = FALSE, quote = FALSE)
+```
+Trait analysis
+```{r}
+trait_data <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/deseq2_conf/Metadata.csv", header=TRUE)
+# Reformat the sample name
+trait_data <- trait_data[, c(1, 2, 7, 11, 15)]
+trait_data$Sample_Name <- gsub("-", ".", trait_data$Sample_Name)
+traitRows_astro <- match(df[, 1], trait_data$Sample_Name)
+trait_data_astro <- trait_data[traitRows_astro, -1]
+nAstrocytes <- ncol(df) - 1
+rownames(trait_data_astro) <- trait_data[traitRows_astro, 1]
+
+# Correlate modules with traits using Spearman's correlation function:
+moduleTraitCor_astro <- cor(module_merged$newMEs, trait_data_astro, use="p", method="spearman") # Obtain correlation value
+moduleTraitPvalue_astro <- corPvalueStudent(moduleTraitCor_astro, nAstrocytes) # Obtain Student asymptotic p-values. 
+textMatrix_astro_pvalues <- paste(signif(moduleTraitCor_astro, 2), "\n(", signif(moduleTraitPvalue_astro, 2), ")", sep="")
+textMatrix_astro <- signif(moduleTraitCor_astro, 2)
+dim(textMatrix_astro) <- dim(moduleTraitCor_astro)
+
+par(mar=c(9, 10, 3, 3))
+labeledHeatmap(Matrix=moduleTraitCor_astro,
+               xLabels=names(trait_data_astro),
+               yLabels=names(module_merged$newMEs),
+               ySymbols=names(module_merged$newMEs),
+               colorLabels=TRUE,
+               colors=blueWhiteRed(30),
+               textMatrix=textMatrix_astro_pvalues,
+               setStdMargins=FALSE,
+               cex.text=0.6,
+               zlim=c(-1,1),
+               main=paste("Astrocytes with KOs and merged colors \nModule-trait relationships"))
+
+# Create figure with * instead of p-values and no correlation values:
+# p<0.001 '***', p<0.01 '**', p<0.05 '*', p<0.1 '.' 
+moduleTraitPvalue_astro0 <- moduleTraitPvalue_astro
+moduleTraitPvalue_astro0[moduleTraitPvalue_astro0 < 0.001] <- "***"
+moduleTraitPvalue_astro0[moduleTraitPvalue_astro0 < 0.01 & moduleTraitPvalue_astro0 >= 0.001] <- "**"
+moduleTraitPvalue_astro0[moduleTraitPvalue_astro0 < 0.05 & moduleTraitPvalue_astro0 >= 0.01] <- "*"
+moduleTraitPvalue_astro0[moduleTraitPvalue_astro0 < 0.1 & moduleTraitPvalue_astro0 >= 0.05] <- "."
+moduleTraitPvalue_astro0[moduleTraitPvalue_astro0 > 0.1] <- ""
+
+par(mar=c(9, 10, 3, 3))
+labeledHeatmap(Matrix=moduleTraitCor_astro,
+               xLabels=names(trait_data_astro),
+               yLabels=names(module_merged$newMEs),
+               ySymbols=names(module_merged$newMEs),
+               colorLabels=TRUE,
+               colors=blueWhiteRed(30),
+               textMatrix=moduleTraitPvalue_astro0,
+               setStdMargins=FALSE,
+               cex.text=1.4,
+               zlim=c(-1,1),
+               main=paste("Astrocytes with KOs and merged colors \nModule-trait relationships"))
+
+```
+
+```{r}
+library(data.table)
+
+source("/projectnb/tcwlab/LabMember/adpelle1/utils/r_utils.R")
+
+# Subset pathways based on size
+pathwaysf<-pathway_all_df[pathway_all_df$size>5&pathway_all_df$size<2000]
+length(unique(pathwaysf$pathway))#2775
+
+# Split the pathway column by "_"
+subcat <- unlist(strsplit(pathwaysf$pathway, "_"))
+#Create sub-category for the pathways
+pathwaysf$subcat <- subcat[seq(1, length(subcat), by = 2)]
+
+#Gene-module
+gene_module_df <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/Gene-Module.csv")
+
+#rm non annotated or unassigned genes
+gene_module_df<-gene_module_df[!(is.na(gene_module_df$gene_name)|gene_module_df$gene_name=='')&gene_module_df$module!='grey', ] #grey is for unassigned genes
+
+res_enr<-rbindlist(lapply(split(pathwaysf, by='subcat'),function(msigdbf)OR3(split(gene_module_df$gene_name,gene_module_df$module),
+                                                                            terms_list = split(msigdbf$gene_name,msigdbf$pathway),
+                                                                            background =gene_module_df$gene_name)))
+
+#add subcategory and pathway size info
+res_enr<-merge(res_enr[padj<0.1&n.overlap>5],unique(pathways_infos,by='term'),by='term')[order(query,term,pval)]
+
+fwrite(res_enr,fp(out,'wgcna_prot_modules_neurons_terms_enriched_padj0.1_overlap5.csv.gz'))
+
+
+#Astrocytes
+mods_dt<-fread('outputs/02B-module_conservation/Protein_modules/astro_modules.csv')
+
+
+#rm non annotated or unassigned genes
+mods_dtf<-mods_dt[!(is.na(gname)|gname=='')&module!='grey'] #grey is for unassigned genes
+
+
+
+res_enr<-rbindlist(lapply(split(pathwaysf,by='subcat'),function(msigdbf)OR3(split(mods_dtf$gname,mods_dtf$module),
+                                                                            terms_list = split(msigdbf$gene,msigdbf$pathway),
+                                                                            background =mods_dt$gname  )))
+
+
+# #add subcategory and pathway size info
+res_enr<-merge(res_enr[padj<0.05&n.overlap>5],unique(pathways_infos,by='term'),by='term')[order(query,term,pval)]
+
+fwrite(res_enr,
+       fp(out,'wgcna_prot_modules_astro_terms_enriched_padj0.05_overlap5.csv.gz'))
 ```
