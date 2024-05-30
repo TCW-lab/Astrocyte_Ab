@@ -13,76 +13,73 @@ deseq2_conf_list <- unlist(strsplit(deseq2_conf_liststr, ","))
 gmt_dir <- "/projectnb/tcwlab/MSigDB/"
 
 
-#BiocManager::install('fgsea', lib = library_path)
-library(fgsea)
+library(ggplot2)
 
-#Takes file index in the deseq2_conf_liststr
-run_gsea <- function(x){
-  comparison <- deseq2_conf_list[x]
-  dir <- paste0(deseq2_root, comparison)
+#Count DEGs in each comparison
+deg_up_df <- data.frame()
+deg_down_df <- data.frame()
+
+for (i in 1:4) {
+  comparison <- deseq2_conf_list[i]
+  dir <- paste0(deseq2_root, comparison, "/")
   subdir <- list.dirs(dir)[2]
   df <- read.csv(paste0(subdir, "/", "Results_GTFAnnotated_NoGeneIDDuplicates.csv"))
   
-  #Rank data frame by stat
-  df_sorted <- df[order(df$stat),]
-  ranks <- setNames(df_sorted$stat, df_sorted$gene_name)
+  #p_value threshold
+  df_subset <- df[df$padj <= 0.1, ]
   
-  for (i in 1:nrow(pathway_df)) {
-    pathways <- gmtPathways(paste0(gmt_dir, pathway_df$gmt[i]))
-  
-    #GSEA
-    fgseaRes <- fgsea(pathways, ranks, scoreType='std',nPermSimple = 10000)
-    
-    #Not including the leading edges
-    gsea_stat <- fgseaRes[, -8]
-    
-    #Leading edges
-    gsea_genes <- data.frame(leadingEdge = sapply(fgseaRes$leadingEdge, paste, collapse = ","))
-    rownames(gsea_genes) <- fgseaRes$pathway
-    
-    #Pathways
-    topPathwaysUp <- fgseaRes[NES > 0][head(order(pval), n=10), pathway]
-    topPathwaysDown <- fgseaRes[NES < 0][head(order(pval), n=10), pathway]
-    topPathways <- c(topPathwaysUp, rev(topPathwaysDown))
-    
-    gsea_subdir <- paste0(gsea_root, comparison, "/")
-    if(!file.exists(gsea_subdir)) {
-        dir.create(gsea_subdir, mode="0755", recursive=TRUE)
-    }
-    
-    #Name each GSEA result by the comparison name
-    gsea_stats_filename <- paste0(gsea_subdir, comparison, "_", pathway_df$gmt[i], "_stats.csv")
-    gsea_genes_filename <- paste0(gsea_subdir, comparison, "_", pathway_df$gmt[i], "_leadingedges.csv")
-    gsea_pathway_filename <- paste0(gsea_subdir, comparison, "_", pathway_df$gmt[i], "_pathways.csv")
-    
-    #Save the data frame
-    write.csv(as.data.frame(gsea_stat), gsea_stats_filename, row.names = FALSE, quote = FALSE)
-    write.csv(gsea_genes, gsea_genes_filename)
-    write.csv(topPathways, gsea_pathway_filename)
-  }
+  deg_up_df[i, 1] <- comparison
+  deg_up_df[i, 2] <- nrow(df_subset)
+  deg_up_df[i, 3] <- nrow(df_subset[df_subset$log2FoldChange > 0, ])
+  deg_up_df[i, 4] <- nrow(df_subset[df_subset$log2FoldChange < 0, ])
 }
 
-#Define pathways of interest
-pathway_df <- data.frame(
-      name=c("GO_all", "C2_CP"),
-      gmt=c("c5.go.v2023.1.Hs.symbols.gmt","c2.cp.v2023.1.Hs.symbols.gmt"),
-      desc=c("GO All" ,"C2 CP"),
-      category=c("C5", "C2"))
-
-
-#Two-way plot for uptake experiment
-for (i in 1:10) {
-  run_gsea(i)
+for (i in 5:12) {
+  comparison <- deseq2_conf_list[i]
+  dir <- paste0(deseq2_root, comparison, "/")
+  subdir <- list.dirs(dir)[2]
+  df <- read.csv(paste0(subdir, "/", "Results_GTFAnnotated_NoGeneIDDuplicates.csv"))
+  
+  #p_value threshold
+  df_subset <- df[df$padj <= 0.1, ]
+  
+  deg_down_df[i, 1] <- comparison
+  deg_down_df[i, 2] <- nrow(df_subset)
+  deg_down_df[i, 3] <- nrow(df_subset[df_subset$log2FoldChange > 0, ])
+  deg_down_df[i, 4] <- nrow(df_subset[df_subset$log2FoldChange < 0, ])
 }
 
+colnames(deg_up_df)[1] <- "Comparison"
+colnames(deg_up_df)[2] <- "DEG_Count"
+colnames(deg_up_df)[3] <- "Up"
+colnames(deg_up_df)[4] <- "Down"
 
+colnames(deg_down_df)[1] <- "Comparison"
+colnames(deg_down_df)[2] <- "DEG_Count"
+colnames(deg_down_df)[3] <- "Up"
+colnames(deg_down_df)[4] <- "Down"
+
+#Melt data
+plot_df <- tidyr::pivot_longer(deg_up_df, cols = c(Up, Down), names_to = "DEG", values_to = "value")
+plot_df$DEG <- factor(plot_df$DEG, levels = c("Up", "Down"))
+
+# Change the order of the x-axis groups
+plot_df$Comparison <- factor(plot_df$Comparison, levels = deseq2_conf_list)
+
+ggplot(plot_df, aes(x = Comparison, y = DEG_Count, fill = DEG)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(title = "", x = "Comparison", y = "Number of DEGs (FDR<0.1)") +
+  scale_fill_manual(values = c("red", "blue"), name = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank())
 
 
 library(ggplot2)
 
-pathway_df_all <- data.frame()
+top_pathway_df_all <- data.frame()
 
-for (i in 1:10) {
+for (i in 1:length(deseq2_conf_list)) {
   comparison <- deseq2_conf_list[i]
   for (j in 1:nrow(pathway_df)) {
     pathway_res <- paste0(gsea_root, comparison, "/", comparison, "_", pathway_df$gmt[j], "_stats.csv")
@@ -90,52 +87,65 @@ for (i in 1:10) {
     df_sorted <- df[order(df$NES), ]
     top_neg_pathway <- head(df_sorted, 10)
     top_pos_pathway <- tail(df_sorted, 10)
-  
+    
     top_pathways <- rbind(top_neg_pathway, top_pos_pathway)
-    top_pathways[, 8] <- pathway_df$name[j]
-    top_pathways[, 9] <- deseq2_conf_list[i]
+    top_pathways$Pathway <- pathway_df$name[j]
+    top_pathways$Comparison <- deseq2_conf_list[i]
     
     #Get a single data frame that contains all top pathways from all comparisons
-    pathway_df_all <- rbind(pathway_df_all, top_pathways)
+    top_pathway_df_all <- rbind(top_pathway_df_all, top_pathways)
     
     #Pathway visualization
-    outdir <- '/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/output/Pathway/'
+    outdir <- '/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/Pathway/'
     
     plot_dir <- paste0(outdir, comparison, "/", pathway_df$gmt[j], "/")
     if(!file.exists(plot_dir)) {
-        dir.create(plot_dir, mode="0755", recursive=TRUE)
+      dir.create(plot_dir, mode="0755", recursive=TRUE)
     }
     
     #Bar plot
     bar <- ggplot(top_pathways, aes(x = NES, y = pathway, fill = -log10(padj))) +
       geom_col() +
-      scale_fill_gradientn(colors = c("blue", "red")) +
+      scale_fill_gradientn(colors = c("yellow", "red")) +
+      theme_light() +
       theme(panel.margin=unit(.05, "lines"),  panel.border = element_rect(color = "black", fill = NA, linewidth = 1)) +
-      labs(title = comparison, x = "", y = "Pathway")
-
+      labs(title = comparison, x = "NES", y = "Pathway")
+    
     #Save as pdf
     pdf(paste0(plot_dir, comparison, "_", pathway_df$gmt[j], "_bar_plot.pdf"), height = 10, width = 10)
     print(bar)
     dev.off()
-    
-    #Dotplot
-    dot <- ggplot(top_pathways, aes(x=NES, y=pathway, colour=padj, size=size)) +
-      geom_point() +
-      expand_limits(x=0) +
-      labs(title = comparison, x="NES", y="GO term", colour="p_adj", size="Count")
-  
-    #Save as pdf
-    pdf(paste0(plot_dir, comparison, "_", pathway_df$gmt[j], "_dot_plot.pdf"), height = 10, width = 10)
-    print(dot)
-    dev.off()
   }
 }
 
-colnames(pathway_df_all)[8] <- "Pathway"
-colnames(pathway_df_all)[9] <- "Comparison"
-
 #Example
-tmp <- pathway_df_all[pathway_df_all$Comparison == "Degrade_33_8vs24hr", ]
+df <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/GSEA/Uptake_44_AbvsCtrl/Uptake_44_AbvsCtrl_c2.cp.v2023.1.Hs.symbols.gmt_stats.csv")
+
+ggplot(df[1:10,], aes(x = NES, y = pathway, fill = -log10(padj))) +
+  geom_col() +
+  scale_fill_gradientn(colors = c("yellow", "red")) +
+  theme_light() + 
+  theme(panel.margin=unit(.05, "lines"),  panel.border = element_rect(color = "black", fill = NA, linewidth = 1)) +
+  labs(title = "test", x = "", y = "Pathway")
+
+
+# Find c2 pathways that are overlapped between comparisons
+library(ggplot2)
+
+#Get all pathways from each gmt for each comparison
+pathway_all_df <- data.frame()
+
+for (i in 1:length(degrade_conf_list)) {
+  comparison <- deseq2_conf_list[i]
+  gsea_dir <- paste0(gsea_root, comparison, "/")
+
+  temp <- readRDS(paste0(gsea_dir, comparison, "_c2.cp.v2023.1.Hs.symbols.gmt_stats.rds"))
+  temp_df <- data.frame()
+  temp_df <- rbind(temp_df, temp)
+  temp_df$Comparison <- comparison
+  
+  pathway_all_df <- rbind(pathway_all_df, temp_df)
+}
 
 
 library(stringr)
@@ -155,8 +165,6 @@ LeadingEdges<-function(res_fgsea){
     names(l_genes)<-res_fgsea$pathway
     return(l_genes)
   }
-  
- 
 }
 
 overlap_ratio <- function(x, y) {
@@ -261,9 +269,9 @@ emmaplot<-function(res_fgsea,
     
   }
   
-  if(is.null(pathway_names))pathway_names=res_fgsea[order(pval)]$pathway
+  if(is.null(pathway_names))pathway_names=res_fgsea[order(res_fgsea$pval),]$pathway
   
-  lelist<-LeadingEdges(res_fgsea[pathway%in%pathway_names])
+  lelist<-LeadingEdges(res_fgsea[res_fgsea$pathway%in%pathway_names, ])
   
   if(!is.null(show_pathway_of)){
     
@@ -301,11 +309,18 @@ emmaplot<-function(res_fgsea,
     p <- add_node_label(p = p,label.size=label.size,max.overlaps=max.overlaps)
     
   }else{
-    p <- ggplot(res_fgsea[pathway%in%pathway_names][,x:=1][,y:=1],aes_string(x='x',y='x'))+
+    # p <- ggplot(res_fgsea[pathway%in%pathway_names][,x:=1][,y:=1],aes_string(x='x',y='x'))+
+    #   geom_point(aes_string(size='size',col=col.var))+
+    #   geom_text_repel(aes(label=pathway))+
+    #   scale_color_gradient2(low = cols[1],high = cols[max(1:length(cols))],midpoint = 0,limits=c(-abs(as.numeric(as.vector(res_fgsea[pathway%in%pathway_names][,..col.var]))),
+    #                                                                                abs(as.numeric(as.vector(res_fgsea[pathway%in%pathway_names][,..col.var])))))+
+    #   theme_graph()
+    
+    p <- ggplot(res_fgsea[,x:=1][,y:=1],aes_string(x='x',y='x'))+
       geom_point(aes_string(size='size',col=col.var))+
       geom_text_repel(aes(label=pathway))+
-      scale_color_gradient2(low = cols[1],high = cols[max(1:length(cols))],midpoint = 0,limits=c(-abs(as.numeric(as.vector(res_fgsea[pathway%in%pathway_names][,..col.var]))),
-                                                                                                 abs(as.numeric(as.vector(res_fgsea[pathway%in%pathway_names][,..col.var])))))+
+      scale_color_gradient2(low = cols[1],high = cols[max(1:length(cols))],midpoint = 0,limits=c(-abs(as.numeric(as.vector(res_fgsea[,..col.var]))),
+                                                                                                 abs(as.numeric(as.vector(res_fgsea[,..col.var])))))+
       theme_graph()
     
   }
@@ -326,47 +341,113 @@ emmaplot<-function(res_fgsea,
   }
 }
 
-run_emma <- function(x){
-  comparison <- deseq2_conf_list[x]
-  dir <- paste0(deseq2_root, comparison)
-  subdir <- list.dirs(dir)[2]
-  df <- read.csv(paste0(subdir, "/", "Results_GTFAnnotated_NoGeneIDDuplicates.csv"))
+# Takes a vector of indecies of deseq config files.
+# The first indices will be the reference, where all the pathways that are overlapped will be selected based on that.
+get_overlap_pathway <- function(x){
   
-  outdir <- '/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/output/Pathway/'
+  df <- pathway_all_df[pathway_all_df$Comparison %in% deseq2_conf_list[x], ]
   
-  #Rank data frame by stat
-  df_sorted <- df[order(df$stat),]
-  ranks <- setNames(df_sorted$stat, df_sorted$gene_name)
+  #Subset overlaped pathways based on p_value threshold 0.1, absolute value of NES threshold 0.5
+  df_subset <- df[abs(df$NES) >= 0.5, ]
   
-  for (i in 1:nrow(pathway_df)) {
-    pathways <- gmtPathways(paste0(gmt_dir, pathway_df$gmt[i]))
+  #Extract the pathways that are overlapped with reference comparison
+  df_ref <- df_subset[df_subset$Comparison == deseq2_conf_list[x][1], ]
   
-    #GSEA
-    fgseaRes <- fgsea(pathways, ranks, scoreType='std',nPermSimple = 10000)
-    
-    #Top 40 pathways in either directions
-    activated <- head(fgseaRes[order(fgseaRes$NES, decreasing = TRUE), ], 40)
-    suppressed <- head(fgseaRes[order(fgseaRes$NES, decreasing = FALSE), ], 40)
-    
-    top_pathways <- data.frame()
-    top_pathways <- rbind(activated, suppressed)
-    
-    emma <- emmaplot(top_pathways, label.size = 1.5)
-    
-    emma_dir <- paste0(outdir, comparison, "/", pathway_df$gmt[i], "/")
-    if(!file.exists(emma_dir)) {
-        dir.create(emma_dir, mode="0755", recursive=TRUE)
+  #Sort the overlapped pathways by abs(NES)
+  df_ref_sorted <- df_ref[order(abs(df_ref$NES)), ]
+  
+  #Save the pathways that are present in all comparisons
+  overlapped_pathway <- data.frame()
+  
+  for (i in unique(df_ref_sorted$pathway)) {
+    temp <- df_subset[df_subset$pathway == i, ]
+    if (nrow(temp) == length(x)) {
+      overlapped_pathway <- rbind(overlapped_pathway, temp)
     }
-
-    #Save as pdf
-    ggsave(paste0(emma_dir, comparison, "_", pathway_df$gmt[i], "_emma_plot.pdf"), height = 10, width = 10)
   }
+  
+  return(overlapped_pathway)
 }
 
-for (i in 1:10) {
-  run_emma(i)
-}
+out_dir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/Pathway/Overlapped_Pathways/"
+
+#Pathways in 44 that are overlapped in 33 upon treatment
+df <- get_overlap_pathway(c(1, 2))
+
+# Change the order of the x-axis groups
+df$Comparison <- factor(df$Comparison, levels = c("Uptake_44_AbvsCtrl", "Uptake_33_AbvsCtrl"))
+
+#Plot heatmap for the top 20 overlapped pathways, one asterisk for p values that are less than 0.1 and two asterisks for p values that are less than 0.05
+p <- ggplot(df[1:20, ], aes(x = Comparison, y = pathway, fill = NES)) + 
+  geom_tile() +
+  geom_text(aes(label = ifelse(padj < 0.1 & padj > 0.05, "*", "")), color = "black") +  
+  geom_text(aes(label = ifelse(padj < 0.05, "**", "")), color = "black") +  
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  xlab(NULL) + ylab(NULL) +
+  scale_fill_gradientn(colors = c("blue", "red")) +
+  coord_equal()
+ggsave(paste0(out_dir, "Uptake_44vs33_overlapped_pathway_bar_plot.pdf"), plot = p, width = 10, height = 10)
+
+#Emma plot for the top 80 overlapped pathways
+emma_df <- df[df$Comparison == "Uptake_33_AbvsCtrl", ]
+emma_df <- emma_df[emma_df$NES >= 0, ]
+emma <- emmaplot(emma_df[1:80, ], label.size = 3)
+ggsave(paste0(out_dir, "Uptake_44vs33_overlapped_pathway_emma_plot.pdf"), plot = emma, height = 10, width = 20)
 
 
-#Example
-df <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/DESEQ2/Degrade_33_8vs24hr/33(8vs24hr)/Results_GTFAnnotated_NoGeneIDDuplicates.csv")
+#Pathways in 33_Saturatedvs24hr that are overlapped in 33_Saturatedvs8hr
+get_overlap_pathway(c(7, 9)) # No overlaps
+
+#Pathways in 44_Saturatedvs24hr that are overlapped in 44_Saturatedvs8hr
+get_overlap_pathway(c(8, 10)) # No overlaps
+
+#Pathways in 44_24hrvs8hr that are overlapped in 33_24hrvs8hr
+df <- get_overlap_pathway(c(5, 6))
+
+# Change the order of the x-axis groups
+df$Comparison <- factor(df$Comparison, levels = c("Degrade_33_24hrvsCtrl", "Degrade_44_24hrvsCtrl"))
+
+#Plot heatmap for the top 20 overlapped pathways, one asterisk for p values that are less than 0.1 and two asterisks for p values that are less than 0.05
+p <- ggplot(df[1:20, ], aes(x = Comparison, y = pathway, fill = NES)) + 
+  geom_tile() +
+  geom_text(aes(label = ifelse(padj < 0.1 & padj > 0.05, "*", "")), color = "black") +  
+  geom_text(aes(label = ifelse(padj < 0.05, "**", "")), color = "black") +  
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  xlab(NULL) + ylab(NULL) +
+  scale_fill_gradientn(colors = c("blue", "red")) +
+  coord_equal()
+ggsave(paste0(out_dir, "Degrade_44vs33_24vs8hr_overlapped_pathway_bar_plot.pdf"), plot = p, width = 10, height = 10)
+
+#Emma plot for the top 80 overlapped pathways
+emma_df <- df[df$Comparison == "Degrade_33_24hrvsCtrl", ]
+emma <- emmaplot(emma_df[1:80, ], label.size = 3)
+ggsave(paste0(out_dir, "Degrade_44vs33_24vs8hr_overlapped_pathway_emma_plot.pdf"), plot = emma, height = 10, width = 20)
+
+
+#Pathways in 44_Saturatedvs8hr that are overlapped in 33_Saturatedvs8hr
+get_overlap_pathway(c(9, 10)) # No overlaps
+
+
+#Pathways in 44_Saturatedvs24hr that are overlapped in 33_Saturatedvs24hr
+df <- get_overlap_pathway(c(7, 8))
+
+# Change the order of the x-axis groups
+df$Comparison <- factor(df$Comparison, levels = c("Degrade_33_Saturatedvs24hr", "Degrade_44_Saturatedvs24hr"))
+
+#Plot heatmap for the top 20 overlapped pathways, one asterisk for p values that are less than 0.1 and two asterisks for p values that are less than 0.05
+p <- ggplot(df[1:20, ], aes(x = Comparison, y = pathway, fill = NES)) + 
+  geom_tile() +
+  geom_text(aes(label = ifelse(padj < 0.1 & padj > 0.05, "*", "")), color = "black") +  
+  geom_text(aes(label = ifelse(padj < 0.05, "**", "")), color = "black") +  
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  xlab(NULL) + ylab(NULL) +
+  scale_fill_gradientn(colors = c("blue", "red")) +
+  coord_equal()
+ggsave(paste0(out_dir, "Degrade_44vs33_48vs24hr_overlapped_pathway_bar_plot.pdf"), plot = p, width = 10, height = 10)
+
+#Emma plot for the top 80 overlapped pathways
+emma_df <- df[df$Comparison == "Degrade_33_Saturatedvs24hr", ]
+emma <- emmaplot(emma_df[1:80, ], label.size = 3)
+ggsave(paste0(out_dir, "Degrade_44vs33_48vs24hr_overlapped_pathway_emma_plot.pdf"), plot = emma, height = 10, width = 20)
+
+

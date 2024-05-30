@@ -25,7 +25,7 @@
  library(stringr)
 
 
- run_deseq2_analysis_genotype <- function () {
+run_deseq2_analysis_genotype <- function () {
    conf <- read.csv(deseq2_conf, header=T)
 
    #################### Defines parameters in config file ####################
@@ -496,8 +496,11 @@
  #DESEQ2_CONF_NUM:3
  #DESEQ2_CONF_LIST:tcw1,tcw2,tcw1_tcw2
  deseq2_conf_num <- 10
- deseq2_conf_liststr <- "Degrade_33_8vs24hr,Degrade_33_8vs48hr,Degrade_33vs44_24hr,Degrade_33vs44_48hr,Degrade_44_8vs24hr,Degrade_44_8vs48hr,Uptake_33_AbvsCrtl,Uptake_33vs44_Ab,Uptake_33vs44_Crtl,Uptake_44_AbvsCrtl"
+ 
+ #These names are renamed after generation of script skeletons from Yun's script
+ deseq2_conf_liststr <- "Uptake_33_AbvsCtrl, Uptake_44_AbvsCtrl, Uptake_44vs33_Ab, Uptake_44vs33_Ctrl, Degrade_33_24hrvsCtrl, Degrade_44_24hrvsCtrl, Degrade_33_Saturatedvs24hr, Degrade_44_Saturatedvs24hr, Degrade_33_SaturatedvsCtrl, Degrade_44_SaturatedvsCtrl, Degrade_44vs33_24hr, Degrade_44vs33_Saturated"
  deseq2_conf_list <- unlist(str_split(gsub(" ", "", deseq2_conf_liststr), ","))
+ 
  conf_root <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/" #"/projectnb/tcwlab/LabMember/yshen16/Project/config/APOE_Mye_Micro_trim_100"
  if(! str_sub(conf_root, -1, -1) == "/") {
    conf_root <- paste0(conf_root, "/")
@@ -518,8 +521,8 @@
  t2g_file <- paste0(anno_dir, "gencode.v26.annotation.gtf")
  t2g <- as.data.frame(rtracklayer::import(t2g_file))
 
-
- for (c in c(3,4,8,9)) {
+#Run genotype covariate
+ for (c in c(3, 4, 11, 12)) {
    # Defines parameters for config file
    cfg_name <- deseq2_conf_list[c] 
    meta_dir <- paste0(meta_root, "/genotype_comparison/", cfg_name, "/"); #results/metadata/config_dir
@@ -601,8 +604,8 @@
  }
 
 
-
- for (c in c(1,2,5,6)) {
+#Run time covariate
+ for (c in c(5, 6, 7, 8, 9, 10)) {
    # Defines parameters for config file
    cfg_name <- deseq2_conf_list[c] 
    meta_dir <- paste0(meta_root, "/time_comparison/",cfg_name, "/"); #results/metadata/config_dir
@@ -681,8 +684,8 @@
    run_deseq2_analysis_time()
  }
 
-
- for (c in c(7, 10)) {
+#Run treatment analysis
+ for (c in c(1, 2)) {
    # Defines parameters for config file
    cfg_name <- deseq2_conf_list[c] 
    meta_dir <- paste0(meta_root, "/treatment_comparison/",cfg_name, "/"); #results/metadata/config_dir
