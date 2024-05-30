@@ -19,11 +19,6 @@ Data Directory `/projectnb/tcwlab/RawData/RawRNAseq/APOE_Ab/2x100`
 8). Deseq2
 9). GSEA
 
-## Progress
-Finished generating visualizations for differential expression and pathway enrichment, currently running WGCNA using qsub, files not finalized yet and may subject to change.
-
-Since DESEQ2 function has been changed, it is no longer compatible with the original qsub. Results were generated using RStuido directly.
-
 ## Usage
 
 Original pipeline included both R and qsub files that were developed by Yun: `/projectnb/tcwlab/LabMember/yshen16/git/APOE_RNASeq_pipeline/scripts`. However, customizations are needed at the following code locations:
