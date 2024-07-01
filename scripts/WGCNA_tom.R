@@ -17,7 +17,7 @@
  gmt_dir <- "/projectnb/tcwlab/MSigDB/"
 
  # Determine the soft threshold based on maximum r2 and first minimum connectivity
- sft <- 10
+ sft <- 29
  
  wgcna_tom <- function() {
    wgcna_dir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/"
@@ -25,14 +25,14 @@
    #Read the normalized expression data
    df <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/normalized_expression.csv")
    
-   outdir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/"
+   outdir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit3/"
    
    TOM <-  blockwiseModules(df[, -1], maxBlockSize=100000, minBlockSize=0, minModuleSize=30,
                             corType="bicor", maxPOutliers=0.10, pearsonFallback="individual",
                             power=sft, networkType="signed", TOMType="signed", reassignThreshold=1E-8,
-                            mergeCutHeight=0.3, deepsplit=2, numericLabels=TRUE, verbose=4)
+                            mergeCutHeight=0.3, deepsplit=3, numericLabels=TRUE, verbose=4)
    
-   saveRDS(TOM, paste0(outdir, "TOM.rds"))
+   saveRDS(TOM, paste0(outdir, "TOM_deepsplit3.rds"))
  }
  
  wgcna_tom()
