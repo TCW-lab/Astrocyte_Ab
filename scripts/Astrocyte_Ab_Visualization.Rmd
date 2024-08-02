@@ -16,7 +16,7 @@ deseq2_conf_liststr <- "APOE33_Treatment_vs_Ctrl,APOE33_Saturated_vs_Ctrl,APOE44
 
 deseq2_conf_list <- unlist(strsplit(deseq2_conf_liststr, ","))
 
-deseq2_name_liststr <- "APOE33_Treatment_vs_Ctrl,APOE33_Saturated_vs_Ctrl,APOE44_Treatment_vs_Ctrl,APOE44_Saturated_vs_Ctrl,APOE44_vs_APOE33_0hr,APOE44_vs_APOE33_8hr,APOE44_vs_APOE33_24hr,APOE33_d24_vs_d0,APOE44_d24_vs_d0,APOE44_vs_APOE33_Degradation"
+deseq2_name_liststr <- "APOE 33_8h_vs_Ctrl,APOE 33_24h_vs_Ctrl,APOE 44_8h_vs_Ctrl,APOE 44_24h_vs_Ctrl,APOE 44_vs_33_Ctrl,APOE 44_vs_33_8h,APOE 44_vs_33_24hr,APOE 33_D24h vs_D0h,APOE 44_D24h vs_D0h,APOE 44_D24h vs_APOE 33_D24h"
 
 deseq2_name_list <- unlist(strsplit(deseq2_name_liststr, ","))
 
@@ -28,7 +28,7 @@ library(ggplot2)
 
 #Takes the index of the deseq2_name_list
 plot_deg <- function(x) {
-  deg_df <- data.frame(
+  deg_df <- data.table(
     Comparison = character(length(x)),
     DEG_count = integer(length(x)),
     Up = integer(length(x)),
@@ -46,35 +46,106 @@ plot_deg <- function(x) {
     df <- read.csv(paste0(subdir, "/", "Results_GTFAnnotated_NoGeneIDDuplicates.csv"))
     
     #p_value threshold
-    df_subset <- df[df$padj <= 0.1, ]
+    df_subset <- df[!is.na(df$padj) & df$padj <= 0.1, ]
     
-    deg_df$Comparison[i] <- name
-    deg_df$DEG_count[i] <- nrow(df_subset)
-    deg_df$Up[i] <- nrow(df_subset[df_subset$log2FoldChange > 0, ])
-    deg_df$Down[i] <- nrow(df_subset[df_subset$log2FoldChange < 0, ])
+    deg_df[i, Comparison := name]
+    deg_df[i, DEG_count := nrow(df_subset)]
+    deg_df[i, Up := sum(df_subset$log2FoldChange > 0)]
+    deg_df[i, Down := sum(df_subset$log2FoldChange < 0)]
   }
   
   #Melt data
   plot_df <- tidyr::pivot_longer(deg_df, cols = c(Up, Down), names_to = "DEG", values_to = "value")
   plot_df$DEG <- factor(plot_df$DEG, levels = c("Up", "Down"))
   
-  # Change the order of the x-axis groups
-  plot_df$Comparison <- factor(plot_df$Comparison, levels = deseq2_name_list[x])
-  
-  ggplot(plot_df, aes(x = Comparison, y = DEG_count, fill = DEG)) +
-    geom_bar(stat = "identity", position = "stack") +
-    labs(title = "", x = "", y = "Number of DEGs (FDR<0.1)") +
-    scale_fill_manual(values = c("red", "blue"), name = "") +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-    theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank())
+  return(plot_df)
 }
 
-plot_deg(c(1,2,3,4))
-plot_deg(c(5,6,7))
-plot_deg(c(8,9))
-plot_deg(c(7,10))
+plot_df <- plot_deg(c(1,2,3,4))
 
+plot_df$Genotype <- ifelse(grepl("APOE 33", plot_df$Comparison), "APOE 33", "APOE 44")
+plot_df$Genotype <- factor(plot_df$Genotype, levels = c("APOE 33", "APOE 44"))
+  
+plot_df$Time <- sapply(plot_df$Comparison, function(x){
+    paste0(unlist(strsplit(x, "_"))[2], " vs 0h")
+  })
+plot_df$Time <- factor(plot_df$Time, levels = c("8h vs 0h", "24h vs 0h"))
+
+ggplot(plot_df, aes(x = Genotype, y = value, fill = DEG)) +
+  geom_bar(stat = "identity", position = "stack", width = 0.7) +
+  facet_grid(~ Time) +
+  scale_fill_manual(values = c("red", "blue"), name = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.6),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+        axis.line = element_line(color = "black", linewidth = 0.2),
+        panel.margin = unit(0, "lines"),
+        strip.text = element_text(size = 14, face = "bold"),
+        strip.background = element_rect(fill = "lightblue", color = "black"),
+        plot.margin = margin(1,10,1,1)) +
+  scale_x_discrete(expand = c(0.6, 0)) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 2000 * 1.05)) +
+  labs(title = "", x = "", y = "Number of DEGs (FDR<0.1)")
+
+plot_df <- plot_deg(c(5,6,7))
+
+plot_df$Time <- ifelse(grepl("Ctrl", plot_df$Comparison), "0 hr", ifelse(grepl("8h", plot_df$Comparison), "8 hr", "24 hr"))
+plot_df$Time <- factor(plot_df$Time, levels = c("0 hr", "8 hr", "24 hr"))
+
+ggplot(plot_df, aes(x = Time, y = DEG_count, fill = DEG)) +
+  geom_bar(stat = "identity", position = "stack", width = 0.7) +
+  scale_fill_manual(values = c("red", "blue"), name = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.6),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+        axis.line = element_line(color = "black", linewidth = 0.2),
+        panel.margin = unit(0, "lines"),
+        plot.margin = margin(1,100,1,1),
+        plot.title = element_text(hjust = 0.5, face = "bold", color = "black")) +
+  scale_x_discrete(expand = c(0.5, 0)) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 450)) +
+  labs(title = "APOE 44 vs APOE 33", x = "", y = "Number of DEGs (FDR<0.1)")
+
+plot_df <- plot_deg(c(8,9))
+
+plot_df$Genotype <- ifelse(grepl("APOE 33", plot_df$Comparison), "APOE 33", "APOE 44")
+plot_df$Genotype <- factor(plot_df$Genotype, levels = c("APOE 33", "APOE 44"))
+
+ggplot(plot_df, aes(x = Genotype, y = value, fill = DEG)) +
+  geom_bar(stat = "identity", position = "stack", width = 0.7) +
+  scale_fill_manual(values = c("red", "blue"), name = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.6),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+        axis.line = element_line(color = "black", linewidth = 0.2),
+        panel.margin = unit(0, "lines"),
+        plot.margin = margin(1,100,1,1),
+        plot.title = element_text(hjust = 0.5, face = "bold", color = "black")) +
+  scale_x_discrete(expand = c(1, 0)) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 12)) +
+  labs(title = "D24h vs D0h", x = "", y = "Number of DEGs (FDR<0.1)")
+
+plot_df <- plot_deg(c(7,10))
+
+plot_df$Time <- c(rep("D0h", 2), rep("D24h", 2))
+
+ggplot(plot_df, aes(x = Time, y = value, fill = DEG)) +
+  geom_bar(stat = "identity", position = "stack", width = 0.7) +
+  scale_fill_manual(values = c("red", "blue"), name = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.6),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+        axis.line = element_line(color = "black", linewidth = 0.2),
+        panel.margin = unit(0, "lines"),
+        plot.margin = margin(1,100,1,1),
+        plot.title = element_text(hjust = 0.5, face = "bold", color = "black")) +
+  scale_x_discrete(expand = c(0.5, 0)) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 450)) +
+  labs(title = "APOE 44 vs APOE 33", x = "", y = "Number of DEGs (FDR<0.1)")
 ```
 Initial GSEA
 ```{r}
@@ -180,6 +251,8 @@ for (i in 1:length(deseq2_conf_list)) {
   run_gsea_astrocyte(i)
 }
 
+astro_subtype[astro_subtype$type == "reacHealthy",]
+
 ```
 GSEA Pathway Visualization
 ```{r}
@@ -219,30 +292,57 @@ for (i in 1:length(deseq2_conf_list)) {
   theme(
     panel.margin = unit(.05, "lines"),
     panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
-    axis.text.y = element_text(size = 12)
+    axis.text.y = element_text(size = 14)
   ) +
-      labs(title = comparison, x = "NES", y = "Pathway")
+      labs(title = deseq2_name_list[i], x = "NES", y = "Pathway")
 
     #Save as pdf
-    pdf(paste0(plot_dir, comparison, "_", pathway_df$gmt[j], "_bar_plot.pdf"), height = 10, width = 10)
+    pdf(paste0(plot_dir, deseq2_name_list[i], "_", pathway_df$gmt[j], "_bar_plot.pdf"), height = 10, width = 15)
     print(bar)
     dev.off()
   }
 }
 
+#Takes index of deseq_list
+pathway_bar_plot <- function(x) {
+  df <- readRDS(paste0("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/GSEA/", deseq2_conf_list[x], "/", deseq2_conf_list[x], "_c2.cp.v2023.1.Hs.symbols.gmt_result.rds"))
+  
+  df_sorted <- df[order(df$NES), ]
+  top_neg_pathway <- head(df_sorted, 5)
+  top_pos_pathway <- tail(df_sorted, 5)
+  
+  top_pathways <- rbind(top_neg_pathway, top_pos_pathway)
+  
+  ggplot(top_pathways, aes(x = NES, y = pathway, fill = -log10(padj))) +
+    geom_col() +
+    scale_fill_gradientn(colors = c("yellow", "red")) +
+    theme_light() +
+    theme(
+      panel.margin = unit(.05, "lines"),
+      panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+      axis.text.y = element_text(size = 8)
+    ) +
+      labs(title = deseq2_name_list[x], x = "NES", y = "")
+}
+
+pathway_bar_plot(1)
+pathway_bar_plot(2)
+pathway_bar_plot(4)
+pathway_bar_plot(5)
+pathway_bar_plot(6)
+pathway_bar_plot(7)
+pathway_bar_plot(8)
+pathway_bar_plot(9)
+pathway_bar_plot(10)
+
+
 df <- readRDS("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/GSEA/APOE44_Treatment_vs_Ctrl/APOE44_Treatment_vs_Ctrl_c2.cp.v2023.1.Hs.symbols.gmt_result.rds")
 df_sorted <- df[order(df$NES), ]
 top_neg_pathway <- head(df_sorted, 5)
-top_pos_pathway <- tail(df_sorted, 6)
-top_pos_pathway <- top_pos_pathway[-2, ]
+top_pos_pathway <- tail(df_sorted, 5)
 
 top_pathways <- rbind(top_neg_pathway, top_pos_pathway)
-top_pathways$Pathway <- pathway_df$name[j]
-top_pathways$Comparison <- deseq2_conf_list[i]
-
-#Get a single data frame that contains all top pathways from all comparisons
-top_pathway_df_all <- rbind(top_pathway_df_all, top_pathways)
-
+top_pathways$pathway[6] <- "REACTOME_RESPIRATORY_ELECTRON_TRANSPORT_ATP_SYNTHESIS_BY_CHEMIOSMOTIC_COUPLING"
 
 
 ggplot(top_pathways, aes(x = NES, y = pathway, fill = -log10(padj))) +
@@ -252,12 +352,31 @@ ggplot(top_pathways, aes(x = NES, y = pathway, fill = -log10(padj))) +
   theme(
     panel.margin = unit(.05, "lines"),
     panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
-    axis.text.y = element_text(size = 12)
+    axis.text.y = element_text(size = 10)
   ) +
-    labs(title = "APOE44_Treatment_vs_Ctrl", x = "NES", y = "Pathway")
-ggsave("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/Pathway/APOE44_Treatment_vs_Ctrl/c2.cp.v2023.1.Hs.symbols.gmt/APOE44_Treatment_vs_Ctrl_c2.cp.v2023.1.Hs.symbols.gmt_bar_plot.pdf", height = 10, width = 10)
+    labs(title = "APOE 44_8h_vs_Ctrl", x = "NES", y = "")
 
 
+```
+Astrocyte Subtype Venn Diagram
+```{r}
+library(ggvenn)
+
+#Venn Diagram with all cell type combined
+gene_list <- list()
+
+for (i in unique(astro_subtype$type)) {
+  
+  df_subset <- astro_subtype[astro_subtype$type == i, ]
+  
+  genes <- unlist(df_subset$Symbol.human)
+  
+  gene_list[[i]] <- genes
+}
+
+group_colors <- c("DAA" = "red", "LARA" = "green", "reacHealthy" = "purple", "NeuroInflAstro" = "cyan")
+
+ggvenn(gene_list, show_elements = F, show_percentage = F, set_name_size = 4, text_size = 4, fill_color = c("red", "purple", "cyan", "green")) + ggtitle(paste0("Astrocyte Subtype Signature Gene Overlap"))
 ```
 GSEA Pathway Visualization (Astrocyte Subtype)
 ```{r}
@@ -285,30 +404,46 @@ plot_subtype_time <- function(x, t) {
   
   df_all_subset <- df_all[, c(1,3,6,10)]
 
-  ggplot(df_all_subset, aes(x = time, y = NES, color = pathway)) +
-  geom_line() +
-  geom_point(aes(size = -log10(padj))) +
-  theme_bw() +
-  theme(
-    axis.text.y = element_text(size = 10),
-    panel.margin = unit(.05, "lines"),
-    panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
-  ) +
-  scale_x_continuous(breaks = unique(df_all_subset$time)) +
-  guides(color = guide_legend(order = 1), size = guide_legend(order = 2)) +
-  labs(title = "APOE44_vs_APOE33 Time Dependent Astrocyte Subtype Enrichment", x = "Time (hr)", y = "NES", color = "Astrocyte Subtype")
+  print(ggplot(df_all_subset, aes(x = time, y = NES, color = pathway)) +
+    geom_line() +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
+    geom_point(aes(size = -log10(padj))) +
+    theme_bw() +
+    theme(
+      axis.text.y = element_text(size = 10),
+      panel.margin = unit(.05, "lines"),
+      panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+    ) +
+    scale_x_continuous(breaks = unique(df_all_subset$time)) +
+    guides(color = guide_legend(order = 1), size = guide_legend(order = 2)) +
+    labs(title = "APOE44_vs_APOE33 Time Dependent Astrocyte Subtype Enrichment", x = "Time (hr)", y = "NES", color = "Astrocyte Subtype"))
+  
+  print(ggplot(df_all_subset, aes(x = time, y = NES)) +
+    geom_line() +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
+    geom_point(aes(size = -log10(padj))) +
+    scale_size_continuous(name = "-log10(padj)", range = c(4, 10)) +
+    facet_grid(~ pathway, space = "free_x") +
+    theme_bw() +
+    theme(
+      axis.text.y = element_text(size = 10),
+      panel.margin = unit(.05, "lines"),
+      panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+    ) +
+    scale_x_continuous(breaks = unique(df_all_subset$time)) +
+    scale_size_continuous(range = c(2,7)) +
+    guides(color = guide_legend(order = 1), size = guide_legend(order = 2)) +
+    labs(title = "APOE44_vs_APOE33 Time Dependent Astrocyte Subtype Enrichment", x = "Time (hr)", y = "NES", color = "Astrocyte Subtype"))
 }
 
 plot_subtype_time(c(5,6,7), c(0,8,24))
-
-plot_subtype_time(c(7,10), c(24,48))
 
 plot_subtype_time(c(5,6,7,10), c(0,8,24,48))
 
 
 #Plot subtype NES level across time and genotype
-bubble_plot <- function(x, t, apoe) {
-  
+#x is the index for the deseq_list, t is the time label
+bubble_plot <- function(x, t) {
   #Contains GSEA result for the four astrocyte subtypes
   df_all <- data.frame()
   
@@ -323,45 +458,55 @@ bubble_plot <- function(x, t, apoe) {
     df_all <- rbind(df_all, gsea_res)
   }
   
-  df_all$genotype <- unlist(strsplit(df_all$Comparison, "_"))[1]
+  df_all$Genotype <- sapply(df_all$Comparison, function(x) {
+    unlist(strsplit(x, "_"))[1]
+  })
   
-  df_all$time <- rep(t, each = 4)
+  df_all$time <- rep(rep(t, each = 4),2)
   
   df_all_subset <- df_all[, c(1,3,6,10,11)]
   
-  df_genotype <- df_all_subset[df_all_subset$genotype == apoe, ]
+  df_all_subset$time <- factor(df_all_subset$time, levels = c("8 hr", "24 hr", "48 hr"))
   
-  nes_summary <- aggregate(NES ~ pathway, data = df_genotype, FUN = mean)
-  
-  ggplot(df_genotype, aes(x = pathway, y = time, size = -log10(padj), color = NES)) +
+  ggplot(df_all_subset, aes(x = pathway, y = NES, size = -log10(padj), color = Genotype)) +
     geom_point() + 
-    scale_color_gradient(name = "NES", low = "blue", high = "red") + 
     scale_size_continuous(name = "-log10(padj)", range = c(4, 10)) +
+    facet_grid(rows = vars(time), space = "free_y") +
     theme_bw() +
     theme(
       axis.text = element_text(size = 10),
       panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
     ) +
-    scale_y_continuous(breaks = unique(df_all_subset$time), expand = c(1, 0)) +
     guides(color = guide_legend(order = 1), size = guide_legend(order = 2)) +
-    labs(title = paste0("Time Dependent Astrocyte Subtype Enrichment in ", apoe), x = "Astrocyte Subtype", y = "Time")
+    scale_size_continuous(range = c(3, 8)) +
+    labs(title = paste0("Time Dependent Astrocyte Subtype Enrichment"), x = "Astrocyte Subtype", y = "NES")
+  
+  ggplot(df_all_subset, aes(x = time, y = NES, color = Genotype)) +
+    geom_point() +
+    geom_point(aes(size = -log10(padj))) +
+    scale_size_continuous(name = "-log10(padj)", range = c(4, 10)) +
+    facet_grid(~ pathway, space = "free_x") +
+    theme_bw() +
+    theme(
+      axis.text.y = element_text(size = 10),
+      panel.margin = unit(.05, "lines"),
+      panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+    ) +
+    guides(color = guide_legend(order = 1), size = guide_legend(order = 2)) +
+    labs(title = "Time Dependent Astrocyte Subtype Enrichment", x = "Time (hr)", y = "NES", color = "Astrocyte Subtype")
 }
 
-bubble_plot(c(1,2), c(8,24), "APOE33")
-bubble_plot(c(3,4), c(8,24), "APOE44")
+bubble_plot(c(1,2,3,4), c("8 hr", "24 hr"))
 
-bubble_plot(c(1,2,8), c(8,24,48), "APOE33")
-bubble_plot(c(3,4,9), c(8,24,48), "APOE44")
+bubble_plot(c(2,8,4,9), c("24 hr", "48 hr"))
 ```
 Emma Polt Function
 ```{r}
-
 library(igraph)
 library(ggraph)
 library(stringr)
 library(ggplot2)
 library(data.table)
-
 
 #Useful Functions####
 #get sim matrix
@@ -791,6 +936,11 @@ library(pheatmap)
 library(ComplexHeatmap)
 library(RColorBrewer)
 library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(tibble)
+library(ggplotify)
+library(data.table)
 
 #Get all pathways from each gmt for each comparison
 pathway_all_df <- data.frame()
@@ -816,9 +966,9 @@ get_overlap_pathway <- function(ref, target, filename){
   #Get the pathways in the reference dataset
   df_ref <- pathway_all_df[pathway_all_df$Comparison == deseq2_name_list[ref], ]
   
-  #Take a maximum of 10 top enriched pathways
-  df_ref_sorted <- df_ref[order(abs(df_ref$NES), decreasing = T), ]
-  df_ref_sorted <- df_ref_sorted[1:min(nrow(df_ref_sorted), 10), ]
+  #Take a maximum of 5 top enriched pathways in either direction
+  df_ref_sorted <- df_ref[order(df_ref$NES, decreasing = T), ]
+  df_ref_sorted <- rbind(head(df_ref_sorted, 5), tail(df_ref_sorted, 5))
   
   #Get the pathways in the target dataset
   df_target <- pathway_all_df[pathway_all_df$Comparison %in% deseq2_name_list[target] & pathway_all_df$pathway %in% df_ref_sorted$pathway, ]
@@ -828,16 +978,35 @@ get_overlap_pathway <- function(ref, target, filename){
 
   overlapped_pathway$Comparison <- factor(overlapped_pathway$Comparison, levels = c(deseq2_name_list[ref], deseq2_name_list[target]))
   
-  ggplot(overlapped_pathway, aes(x = Comparison, y = pathway, fill = NES)) + 
-    geom_tile() +
-    geom_text(aes(label = ifelse(padj < 0.1 & padj > 0.05, "*", "")), color = "black") +  
-    geom_text(aes(label = ifelse(padj < 0.05, "**", "")), color = "black") +  
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
-    xlab(NULL) + ylab(NULL) +
-    scale_fill_gradientn(colors = c("blue", "red")) +
-    coord_equal()
-  ggsave(paste0(outdir, filename, ".pdf"), height = 10, width = 15)
+  heatmap_df <- overlapped_pathway[, c(1,6,9)]
+  
+  pathway_matrix <- as.data.frame(reshape(heatmap_df, idvar = "pathway", timevar = "Comparison", direction = "wide"))
+  
+  colnames(pathway_matrix)[2:ncol(pathway_matrix)] <- sapply(colnames(pathway_matrix)[2:ncol(pathway_matrix)], function(x) {
+  unlist(strsplit(x, "\\."))[2]
+})
+  
+  rownames(pathway_matrix) <- pathway_matrix$pathway
+  
+  pval_df <- overlapped_pathway[, c(1,3,9)]
+  
+  pval_matrix <- as.data.frame(reshape(pval_df, idvar = "pathway", timevar = "Comparison", direction = "wide"))
+  
+  pval_matrix[, -1] <- lapply(pval_matrix[, -1], function(col) {
+    sapply(col, function(x) {
+      if (x < 0.1 & x > 0.05) {
+        return("\u2731")
+      } else if (x < 0.05) {
+        return("\u2731\u2731")
+      } else {
+        return(" ")
+      }
+    })
+  })
+  
+  color=colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(50)
+  
+  pheatmap::pheatmap(as.matrix(pathway_matrix[,-1]), cluster_cols = FALSE, cluster_rows = T, color =  color, angle_col = "45", main = "", fontsize_row = 7, fontsize_col = 10, na_col = "white", cellwidth = 25, display_numbers = as.matrix(pval_matrix[,-1]), number_color = "white")
 }
 
 get_overlap_pathway(1,2, "APOE33_Treatment_Pathway_Overlap")
@@ -845,11 +1014,11 @@ get_overlap_pathway(3,4, "APOE44_Treatment_Pathway_Overlap")
 get_overlap_pathway(1,3, "Treatment_Genotype_Pathway_Overlap")
 get_overlap_pathway(2,4, "Saturation_Genotype_Pathway_Overlap")
 get_overlap_pathway(5,c(6,7), "APOE44_vs_APOE33_Time_Pathway_Overlap")
-get_overlap_pathway(5,c(6,7,10), "APOE44_vs_APOE33_Time_Pathway_Overlap2")
+get_overlap_pathway(7,10, "APOE44_vs_APOE33_Time_Pathway_Overlap2")
 get_overlap_pathway(8,9, "Degradation_Genotype_Pathway_Overlap")
 
 get_opposite_pathway <- function(ref, target) {
-  
+
   outdir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/Pathway/overlapped_pathway/"
   
   #Get the pathways in the reference dataset
@@ -921,7 +1090,7 @@ plot_opposite_pathway <- function(ref, target, filename) {
   
   #Take a maximum of 80 most oppositely enriched pathways 
   df_merged_sorted <- df_merged[order(abs(df_merged$NES.x - df_merged$NES.y), decreasing = T),]
-  df_merged_sorted <- df_merged_sorted[1:min(nrow(df_merged_sorted), 40),]
+  df_merged_sorted <- df_merged_sorted[1:min(nrow(df_merged_sorted), 100),]
   
   top_pathways <- df_ref[df_ref$pathway %in% df_merged_sorted$pathway, ]
 
@@ -935,51 +1104,316 @@ plot_opposite_pathway(1,3,"Between_Genotype_Treatment")
 plot_opposite_pathway(2,4,"Between_Genotype_Saturation")
 plot_opposite_pathway(8,9,"Between_Genotype_Degradation")
 
+
+#Overlapped Pathway Heatmap after manual selection of pathways based on Emma plot, one from each cluster to avoid showing repeated mechanisms.
+# Takes a vector of indecies of deseq config files.
+# The first indices will be the reference, where all the pathways that are overlapped will be selected based on that.
+#Pathways will be a vector of indecies
+get_overlap_pathway <- function(ref, target, pathways, filename){
+  
+  outdir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/Pathway/overlapped_pathway/"
+  
+  #Get the pathways in the reference dataset
+  df_ref <- pathway_all_df[pathway_all_df$Comparison == deseq2_name_list[ref], ]
+  
+  df_ref_sorted <- df_ref[df_ref$pathway %in% pathways, ]
+  
+  #Get the pathways in the target dataset
+  df_target <- pathway_all_df[pathway_all_df$Comparison %in% deseq2_name_list[target] & pathway_all_df$pathway %in% df_ref_sorted$pathway, ]
+  
+  #Save the overlapped pathways
+  overlapped_pathway <- rbind(df_ref_sorted, df_target)
+  
+  overlapped_pathway$Comparison <- factor(overlapped_pathway$Comparison, levels = c(deseq2_name_list[ref], deseq2_name_list[target]))
+  
+  heatmap_df <- overlapped_pathway[, c(1,6,9)]
+  
+  pathway_matrix <- as.data.frame(reshape(heatmap_df, idvar = "pathway", timevar = "Comparison", direction = "wide"))
+  
+  colnames(pathway_matrix)[2:ncol(pathway_matrix)] <- sapply(colnames(pathway_matrix)[2:ncol(pathway_matrix)], function(x) {
+  unlist(strsplit(x, "\\."))[2]
+})
+  
+  rownames(pathway_matrix) <- pathway_matrix$pathway
+  
+  pval_df <- overlapped_pathway[, c(1,3,9)]
+  
+  pval_matrix <- as.data.frame(reshape(pval_df, idvar = "pathway", timevar = "Comparison", direction = "wide"))
+  
+  pval_matrix[, -1] <- lapply(pval_matrix[, -1], function(col) {
+    sapply(col, function(x) {
+      if (x < 0.1 & x > 0.05) {
+        return("\u2731")
+      } else if (x < 0.05) {
+        return("\u2731\u2731")
+      } else {
+        return(" ")
+      }
+    })
+  })
+  
+  color=colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(50)
+  
+  pheatmap::pheatmap(as.matrix(pathway_matrix[,-1]), cluster_cols = FALSE, cluster_rows = T, color =  color, angle_col = "45", main = "", fontsize_row = 7, fontsize_col = 10, na_col = "white", cellwidth = 25, display_numbers = as.matrix(pval_matrix[,-1]), number_color = "white")
+}
+
+apoe33_treated_saturated <- c("KEGG_RIBOSOME", "WP_CHOLESTEROL_METABOLISM", "WP_MRNA_PROCESSING", "REACTOME_NUCLEOTIDE_BIOSYNTHESIS", "KEGG_DNA_REPLICATION", "REACTOME_EXTRACELLULAR_MATRIX_ORGANIZATION", "WP_TRANSLATION_FACTORS", "KEGG_RNA_DEGRADATION")
+
+apoe44_treated_saturated <- c("REACTOME_TRANSLATION", "WP_CYTOPLASMIC_RIBOSOMAL_PROTEINS", "REACTOME_METABOLISM_OF_AMINO_ACIDS_AND_DERIVATIVES","REACTOME_THE_CITRIC_ACID_TCA_CYCLE_AND_RESPIRATORY_ELECTRON_TRANSPORT", "PID_IL2_STAT5_PATHWAY", "REACTOME_ORC1_REMOVAL_FROM_CHROMATIN", "WP_MIRNA_TARGETS_IN_ECM_AND_MEMBRANE_RECEPTORS", "REACTOME_PHOSPHORYLATION_OF_THE_APC_C")
+
+apoe44_vs_33_8hr <- c("REACTOME_METABOLISM_OF_RNA", "REACTOME_TRANSPORT_OF_MATURE_TRANSCRIPT_TO_CYTOPLASM", "BIOCARTA_COMP_PATHWAY", "REACTOME_FANCONI_ANEMIA_PATHWAY", "REACTOME_HIV_LIFE_CYCLE", "KEGG_FATTY_ACID_METABOLISM", "REACTOME_EXTENSION_OF_TELOMERES", "BIOCARTA_LDL_PATHWAY")
+
+apoe44_vs_33_24hr <- c("REACTOME_TRANSLATION", "PID_AVB3_INTEGRIN_PATHWAY", "REACTOME_COMPLEX_I_BIOGENESIS", "REACTOME_APC_C_CDC20_MEDIATED_DEGRADATION_OF_CYCLIN_B", "KEGG_JAK_STAT_SIGNALING_PATHWAY", "REACTOME_MITOTIC_G2_G2_M_PHASES", "REACTOME_INFLUENZA_INFECTION", "WP_CYTOPLASMIC_RIBOSOMAL_PROTEINS")
+
+apoe44_vs_33_48hr <- c("REACTOME_HOMOLOGY_DIRECTED_REPAIR", "WP_DNA_REPLICATION", "WP_PROTEASOME_DEGRADATION", "REACTOME_TRANSFERRIN_ENDOCYTOSIS_AND_RECYCLING", "REACTOME_MITOTIC_PROPHASE", "REACTOME_ACTIVATION_OF_NIMA_KINASES_NEK9_NEK6_NEK7", "REACTOME_CHOLESTEROL_BIOSYNTHESIS", "REACTOME_CELL_CYCLE_MITOTIC")
+
+
+get_overlap_pathway(1,2, apoe33_treated_saturated, "APOE33_Treatment_Pathway_Overlap")
+get_overlap_pathway(3,4, apoe44_treated_saturated, "APOE44_Treatment_Pathway_Overlap")
+get_overlap_pathway(1,3, apoe44_vs_33_8hr, "Treatment_Genotype_Pathway_Overlap")
+get_overlap_pathway(2,4, apoe44_vs_33_24hr, "Saturation_Genotype_Pathway_Overlap")
+get_overlap_pathway(8,9, apoe44_vs_33_48hr, "Degradation_Genotype_Pathway_Overlap")
+
+```
+Pathway Overlap Heatmap (Time)
+```{r}
+library(pheatmap)
+#install.packages("ComplexHeatmap")
+library(ComplexHeatmap)
+library(RColorBrewer)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(tibble)
+library(ggplotify)
+library(data.table)
+
+deseq2_name_liststr <- "APOE 33_8h_vs_Ctrl,APOE 33_24h_vs_Ctrl,APOE 44_8h_vs_Ctrl,APOE 44_24h_vs_Ctrl,APOE 44_vs_33_Ctrl,APOE 44_vs_33_8h,APOE 44_vs_33_24hr,APOE 33_D24h vs_D0h,APOE 44_D24h vs_D0h,APOE 44_D24h vs_APOE 33_D24h"
+
+deseq2_name_list <- unlist(strsplit(deseq2_name_liststr, ","))
+
+#Get all pathways from each gmt for each comparison
+pathway_all_df <- data.frame()
+
+for (i in 1:length(deseq2_conf_list)) {
+  comparison <- deseq2_conf_list[i]
+  gsea_dir <- paste0(gsea_root, comparison, "/")
+
+  temp <- readRDS(paste0(gsea_dir, comparison, "_c2.cp.v2023.1.Hs.symbols.gmt_result.rds"))
+  temp_df <- data.frame()
+  temp_df <- rbind(temp_df, temp)
+  temp_df$Comparison <- deseq2_name_list[i]
+  
+  pathway_all_df <- rbind(pathway_all_df, temp_df)
+}
+
+# Takes a vector of indecies of deseq config files.
+# x will be the indecies of the datasets, y will be the indecies for endpoint visualization
+get_overlap_pathway_time <- function(x, y, colname, filename){
+
+  outdir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/Pathway/overlapped_pathway/"
+  
+  overlapped_df <- data.frame()
+  
+  for (i in 1:length(x)) {
+    df_subset <- pathway_all_df[pathway_all_df$Comparison %in% deseq2_name_list[x[i]], ]
+    
+    overlapped_df <- rbind(overlapped_df, df_subset)
+  }
+  
+  #Get pathways that are present in all data sets
+  pathway_count <- table(overlapped_df$pathway)
+  
+  overlapped_pathway <- names(pathway_count)[which(pathway_count == length(x))]
+  
+  overlapped_pathway_df <- overlapped_df[overlapped_df$pathway %in% overlapped_pathway, ]
+  
+  #Get significant p values
+  p_count <- table(overlapped_pathway_df$pathway[overlapped_pathway_df$padj < 0.05])
+  
+  overlapped_pathway_df$sig_p <- sapply(overlapped_pathway_df$pathway, function(x) p_count[x])
+  
+  #Remove pathways that are insignificant in all conditions
+  overlapped_pathway_df <- overlapped_pathway_df[!is.na(overlapped_pathway_df$sig_p),]
+  
+  #Rank the pathways by standard deviations across conditions
+  overlapped_pathway_df$sd <- sapply(overlapped_pathway_df$pathway, function(x) {
+    sd(overlapped_pathway_df[overlapped_pathway_df$pathway == x, ]$NES)
+  })
+  
+  overlapped_pathway_df_sorted <- overlapped_pathway_df[order(overlapped_pathway_df$sd, decreasing = F), ]
+  
+  heatmap_df <- overlapped_pathway_df_sorted[, c(1,6,9)]
+  
+  heatmap_df$Comparison <- factor(heatmap_df$Comparison, levels = c(deseq2_name_list[x]))
+  
+  pathway_matrix <- as.data.frame(reshape(heatmap_df, idvar = "pathway", timevar = "Comparison", direction = "wide"))
+  
+  colnames(pathway_matrix)[2:ncol(pathway_matrix)] <- colname
+  
+  rownames(pathway_matrix) <- pathway_matrix$pathway
+  
+  #Take the top 10 most and least opposite pathways for heatmap
+  top_pathways <- rbind(head(pathway_matrix, 10), tail(pathway_matrix, 10))
+  
+
+  pval_df <- overlapped_pathway_df_sorted[overlapped_pathway_df_sorted$pathway %in% top_pathways$pathway, c(1,3,9)]
+  
+  pval_matrix <- as.data.frame(reshape(pval_df, idvar = "pathway", timevar = "Comparison", direction = "wide"))
+  
+  pval_matrix[, -1] <- lapply(pval_matrix[, -1], function(col) {
+    sapply(col, function(x) {
+      if (x < 0.1 & x > 0.05) {
+        return("\u2731")
+      } else if (x < 0.05) {
+        return("\u2731\u2731")
+      } else {
+        return(" ")
+      }
+    })
+  })
+  
+  color=colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(50)
+  
+  pheatmap::pheatmap(as.matrix(top_pathways[,-1]), cluster_cols = FALSE, cluster_rows = T, color =  color, angle_col = "0", main = "", fontsize_row = 7, fontsize_col = 10, na_col = "white", cellwidth = 25, display_numbers = as.matrix(pval_matrix[,-1]), number_color = "white")
+  
+  #Take the top 100 most and least opposite pathways for Emma Plot
+  top_pathways2 <- rbind(head(pathway_matrix, 50), tail(pathway_matrix, 50))
+  
+  top_pathways2_df <- pathway_all_df[pathway_all_df$Comparison == deseq2_name_list[y] & pathway_all_df$pathway %in% top_pathways2$pathway, ]
+  
+  emmaplot(top_pathways2_df, label.size = 3)
+  ggsave(paste0(outdir, filename, "_opposite_pathway_emma_plot.pdf"), height = 10, width = 15)
+}
+
+get_overlap_pathway_time(c(5,6,7), 7, c("0 hr", "8 hr", "24 hr"), "APOE44_vs_APOE33_Pathway_Overlap_Uptake")
+get_overlap_pathway_time(c(7,10), 10, c("D0h", "D24h"), "APOE44_vs_APOE33_Pathway_Overlap_Degradation")
+
+
+get_overlap_pathway <- function(ref, target, pathways, filename){
+  
+  outdir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/Pathway/overlapped_pathway/"
+  
+  #Get the pathways in the reference dataset
+  df_ref <- pathway_all_df[pathway_all_df$Comparison == deseq2_name_list[ref], ]
+  
+  df_ref_sorted <- df_ref[df_ref$pathway %in% pathways, ]
+  
+  #Get the pathways in the target data set
+  df_target <- pathway_all_df[pathway_all_df$Comparison %in% deseq2_name_list[target] & pathway_all_df$pathway %in% df_ref_sorted$pathway, ]
+  
+  #Save the overlapped pathways
+  overlapped_pathway <- rbind(df_target, df_ref_sorted)
+  
+  overlapped_pathway$Comparison <- factor(overlapped_pathway$Comparison, levels = c(deseq2_name_list[target], deseq2_name_list[ref]))
+  
+  heatmap_df <- overlapped_pathway[, c(1,6,9)]
+  
+  pathway_matrix <- as.data.frame(reshape(heatmap_df, idvar = "pathway", timevar = "Comparison", direction = "wide"))
+  
+  colnames(pathway_matrix)[2:ncol(pathway_matrix)] <- sapply(colnames(pathway_matrix)[2:ncol(pathway_matrix)], function(x) {
+  unlist(strsplit(x, "\\."))[2]
+})
+  
+  rownames(pathway_matrix) <- pathway_matrix$pathway
+  
+  pval_df <- overlapped_pathway[, c(1,3,9)]
+  
+  pval_matrix <- as.data.frame(reshape(pval_df, idvar = "pathway", timevar = "Comparison", direction = "wide"))
+  
+  pval_matrix[, -1] <- lapply(pval_matrix[, -1], function(col) {
+    sapply(col, function(x) {
+      if (x < 0.1 & x > 0.05) {
+        return("\u2731")
+      } else if (x < 0.05) {
+        return("\u2731\u2731")
+      } else {
+        return(" ")
+      }
+    })
+  })
+  
+  color=colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(50)
+  #colnames(pathway_matrix)[c(2,3)] <- c("APOE 44 vs APOE 33 D0h", "APOE 44 vs APOE 33 D24h")
+  pheatmap::pheatmap(as.matrix(pathway_matrix[,-1]), cluster_cols = FALSE, cluster_rows = T, color =  color, angle_col = "45", main = "", fontsize_row = 7, fontsize_col = 10, na_col = "white", cellwidth = 25, display_numbers = as.matrix(pval_matrix[,-1]), number_color = "white")
+}
+
+apoe44_vsapoe33_uptake_emma <- c("REACTOME TRANSLATION", "PROMETOBIE_SELENOAMINO_ACID_METABOLISM", "KEGG_FC_GAMMA_R_MEDIATED_PHAGOCYTOSIS", "REACTOME_CELLULAR_RESPONSE_TO_STARVATION", "REACTOME_RNA_POLYMERASE_II_TRANSCRIPTION", "REACTOME_NEURONAL_SYSTEM", "NABA_MATRISOME", "REACTOME_COLLAGEN_FORMATION", "BIOCARTA_PROTEASOME_PATHWAY", "KEGG_B_CELL_RECEPTOR_SIGNALING")
+apoe44_vsapoe33_degrade_emma <- c("NABA_MATRISOME", "REACTOME_GPCR_LIGAND_BINDING", "PID_BCR_5PATHWAY", "REACTOME_SUMOYLATION", "KEGG_WNT_SIGNALING PATHWAY", "WP_INSULIN_SIGNALING", "REACTOME_STABILIZATION_OF_P53", "REACTOME_MITOTIC_PROMETAPHASE", "WP_PROTEASOME_DEGRADATION")
+
+get_overlap_pathway(7, c(5,6), apoe44_vsapoe33_uptake_emma, "APOE 33 vs APOE 33 Uptake Pathway Overlap")
+get_overlap_pathway(10, 7, apoe44_vsapoe33_degrade_emma, "APOE 33 vs APOE 33 Degradation Pathway Overlap")
 ```
 Volcano Plot
 ```{r}
 #Volcano Plot
-#BiocManager::install("EnhancedVolcano")
-library(EnhancedVolcano)
+library(ggrepel)
 
-#Takes data frame and plot title
-volcano <- function(df, title){
-  p <- EnhancedVolcano(df,
-  lab = df$gene_name,
-  x = 'log2FoldChange',
-  y = 'padj',
-  title = title,
-  pointSize = c(ifelse(df$log2FoldChange>3, 3, 1)),
-  pCutoff = 0.1 ,
-  FCcutoff = 0.5,
-  cutoffLineType = 'twodash',
-  cutoffLineCol = 'black',
-  cutoffLineWidth = 0.8,
-  hline = c(0.1, 1e-10),
-  hlineCol = 'black',
-  hlineType = 'longdash',
-  hlineWidth = 1,
-  gridlines.major = FALSE,
-  gridlines.minor = FALSE,
-  legendLabels=c('Not sig.','Log (base 2) FC','FDR', 'FDR & Log (base 2) FC'),
-  legendPosition = "right",
-  legendLabSize = 12,
-  legendIconSize = 5.0,
-  caption = bquote(~Log[2]~ "fold change cutoff, 0.5; FDR cutoff, 0.1"))
-}
-
-for (i in 1:length(deseq2_conf_list)) {
-  comparison <- deseq2_conf_list[i]
+plot_volcano <- function(x, fc, padj) {
+  
+  comparison <- deseq2_conf_list[x]
   dir <- paste0(deseq2_root, comparison)
   subdir <- list.dirs(dir)[2]
   df <- read.csv(paste0(subdir, "/", "Results_GTFAnnotated_NoGeneIDDuplicates.csv"))
+  
+  filename <- deseq2_name_list[x]
+  
+  df$expression <- ifelse(abs(df$log2FoldChange) > fc & df$padj < padj, "FDR & Log2FC", ifelse(abs(df$log2FoldChange) > fc, "Log2FC", "Not Sig"))
+  
+  df <- df[!is.na(df$expression),]
+  
+  df$expression <- factor(df$expression, levels = c("FDR & Log2FC", "Log2FC", "Not Sig"))
 
-  filename <- paste0("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/volcano_plot/", comparison, "_Volcano Plot.pdf")
-  pdf(filename, height = 10, width = 10)
-  print(volcano(df, comparison))
-  dev.off()
+  top_gene_df <- df[df$expression == "FDR & Log2FC", ]
+  
+  top_gene_df <- top_gene_df[order(abs(top_gene_df$log2FoldChange), decreasing = T), ]
+  
+  x_min <- ifelse(nrow(top_gene_df) > 2, min(top_gene_df$log2FoldChange) * 1.05, -5)
+  x_max <- ifelse(nrow(top_gene_df) > 2, max(top_gene_df$log2FoldChange) * 1.05, 5)
+  
+  y_min <- ifelse(nrow(top_gene_df) > 2, 0, -log10(median(df$padj, na.rm = TRUE)))
+  y_max <- ifelse(nrow(top_gene_df) > 2, -log10(min(df$padj, na.rm = TRUE)) * 1.05, -log10(min(df$padj, na.rm = TRUE)) * 1.05)
+  
+  ggplot(df, aes(log2FoldChange, -log10(padj))) +
+    geom_point(aes(color = expression),size = 2/5) +
+    geom_hline(yintercept = -log10(padj), linetype = "dashed", color = "black") +
+    geom_vline(xintercept = c(-fc, fc), linetype = "dashed", color = "black") +
+    theme_minimal()+
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+          plot.title = element_text(hjust = 0.5, face = "bold", color = "black")) +
+    scale_color_manual(values = c("red", "green", "gray50"), drop = FALSE) +
+    guides(colour = guide_legend(override.aes = list(size=1.5))) +
+    geom_label_repel(data = top_gene_df[1:30],
+                     mapping = aes(log2FoldChange, -log(padj,10), label = gene_name),
+                     size = 2) +
+    scale_x_continuous(expand = c(0, 0), limits = c(x_min, x_max)) +
+    scale_y_continuous(expand = c(0, 0), limits = c(y_min, y_max)) +
+    theme(axis.title.x = element_text(size = 12),
+          axis.title.y = element_text(size = 12),
+          axis.line = element_line(linewidth = 0.5)) +
+    labs(color= paste0("Log2FC Cutoff: ", fc, "\nFDR Cutoff: ", padj, "\n\n"), size = 13) +
+    labs(title = filename,
+         x = expression("Log"[2]*"FC"),
+         y = expression("-Log"[10]*"FDR"))
 }
 
+fc <- 0.5
+padj <- 0.1
+
+deseq2_name_liststr <- "APOE 33 8h vs 0h,APOE 33 24h vs 0h,APOE 44 8h vs 0h,APOE 44 24h vs 0h,APOE 44 vs 33 0h,APOE 44 vs 33 8h,APOE 44 vs 33 D0h,APOE 33 D24h vs D0h,APOE 44 D24h vs D0h,APOE 44 vs APOE 33 D24h"
+
+deseq2_name_list <- unlist(strsplit(deseq2_name_liststr, ","))
+
+plot_volcano(1, fc, padj)
+plot_volcano(2, fc, padj)
+plot_volcano(3, fc, padj)
+plot_volcano(4, fc, padj)
+plot_volcano(5, fc, padj)
+plot_volcano(6, fc, padj)
+plot_volcano(7, fc, padj)
+plot_volcano(8, fc, padj)
+plot_volcano(9, fc, padj)
+plot_volcano(10, fc, padj)
 ```
 PCA
 ```{r}
@@ -1200,6 +1634,8 @@ plot_WGCNA_threshold <- function() {
 
 plot_WGCNA_threshold()
 
+
+#PCA after normalization
 test <- read.csv(paste0(outdir, "normalized_expression.csv"))
 
 h_tree <- hclust(dist(test), method="average")
@@ -1210,44 +1646,38 @@ pca_df <- as.data.frame(pca_res$x) # Extract results
 pca_prct <- round(pca_res$sdev / sum(pca_res$sdev) * 100, 2) # Calculate PC %s
 pca_prct <- paste0(colnames(pca_df), " (", paste(as.character(pca_prct), "%)")) # Create PC axis labels
 
+genotype_color <- substr(test[, 1], start = 5, stop = 7)
+
 ggplot(data=pca_df, aes(x=PC1, y=PC2, color=genotype_color)) + 
   geom_point(size=2) + xlab(pca_prct[1]) + ylab(pca_prct[2]) + 
   theme(legend.title=element_blank()) + ggtitle("PCA")
 
 indiv_color <- substr(test[, 1], start = 1, stop = 4)
 
-genotype_color <- substr(test[, 1], start = 5, stop = 7)
+
 
 time_color <- unlist(lapply(strsplit(test[, 1], "\\."), function(x) paste(tail(x, 2), collapse = ".")))
 
 ```
 Construct the WGCNA TOM
 ```{r}
-wgcna_tom <- function(x) {
-  comparison <- deseq2_conf_list[x]
-  wgcna_dir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/"
-  
-  #Read the normalized expression data
-  df <- read.csv(paste0(wgcna_dir, comparison, "/", comparison, "_normalized_expression.csv"))
-  
-  outdir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/"
-  
-  softPower <- sft_list[i]
-  
-  TOM <-  blockwiseModules(df[, -1], maxBlockSize=10000, minBlockSize=0, minModuleSize=30,
-                                 corType="bicor", maxPOutliers=0.10, pearsonFallback="individual",
-                                 power=softPower, networkType="signed", TOMType="signed", reassignThreshold=1E-8,
-                                 mergeCutHeight=0.3, deepsplit=2, numericLabels=TRUE, verbose=4)
-  
-  file_dir <- paste0(outdir, comparison, "/")
-  
-  saveRDS(TOM, paste0(outdir, comparison, "_TOM.rds"))
-}
+wgcna_tom <- function() {
+   wgcna_dir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/"
 
-
-for (i in 1:length(deseq2_conf_list)) {
-  wgcna_dendro(i)
-}
+   #Read the normalized expression data
+   df <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/normalized_expression.csv")
+   
+   outdir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit3/"
+   
+   TOM <-  blockwiseModules(df[, -1], maxBlockSize=100000, minBlockSize=0, minModuleSize=30,
+                            corType="bicor", maxPOutliers=0.10, pearsonFallback="individual",
+                            power=sft, networkType="signed", TOMType="signed", reassignThreshold=1E-8,
+                            mergeCutHeight=0.3, deepsplit=3, numericLabels=TRUE, verbose=4)
+   
+   saveRDS(TOM, paste0(outdir, "TOM_deepsplit3.rds"))
+ }
+ 
+ wgcna_tom()
 ```
 WGCNA dendrogram plot
 ```{r}
@@ -1303,7 +1733,7 @@ plotEigengeneNetworks(module_merged$newMEs, "Merged Module Eigengene Correlation
 dev.off()
 
 # Plot the eigengene heatmap
-pdf(paste0(outdir, "Module_Eigengene_Correlation_Heatmap.pdf"), width = 10, height = 10)
+pdf(paste0(outdir, "Module_Eigengene_Correlation_Heat map.pdf"), width = 10, height = 10)
 plotEigengeneNetworks(ME, "Module Eigengene Correlation Heatmap", plotHeatmaps=TRUE, plotDendrograms=FALSE, plotAdjacency=FALSE, excludeGrey=FALSE, marHeatmap=c(8,10,3,3), xSymbols=names(ME), ySymbols=names(ME), printAdjacency = TRUE)
 dev.off()
 
@@ -1353,8 +1783,11 @@ write.csv(modules_df, paste0(outdir, "module_genes.csv"), row.names = FALSE, quo
 ```
 Trait analysis
 ```{r}
+eigen_gene=ME
+trait_data=trait_data_final
+expression_data = expression_df
 plot_trait_heatmap <- function(eigen_gene, trait_data, expression_data, filename) {
-  
+
   # Correlate modules with traits using Spearman's correlation function:
   module_trait_cor <- cor(eigen_gene, trait_data, use="p", method="spearman") # Obtain correlation value
   
@@ -1364,21 +1797,23 @@ plot_trait_heatmap <- function(eigen_gene, trait_data, expression_data, filename
   text_value <- signif(module_trait_cor, 2)
   dim(text_value) <- dim(module_trait_cor)
   
-  outdir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit2/"
+  outdir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit2/trait_analysis/"
   
   pdf(paste0(outdir, filename, ".pdf"), width = 10, height = 10)
   par(mar=c(9, 10, 3, 3))
   labeledHeatmap(Matrix=module_trait_cor,
-                 xLabels=names(trait_data_final),
-                 yLabels=names(ME),
-                 ySymbols=names(ME),
+                 xLabels=names(trait_data),
+                 yLabels=names(eigen_gene),
+                 ySymbols=names(eigen_gene),
                  colorLabels=TRUE,
                  colors=blueWhiteRed(30),
                  textMatrix=text_value,
                  setStdMargins=FALSE,
-                 cex.text=0.6,
+                 cex.lab = 1.4,
+                 cex.text=1,
                  zlim=c(-1,1),
-                 main=paste("Module-trait relationships"))
+                 main=filename,
+                 cex.main = 1.2)
   dev.off()
   
   # Create figure with * instead of p-values and no correlation values:
@@ -1386,23 +1821,26 @@ plot_trait_heatmap <- function(eigen_gene, trait_data, expression_data, filename
   module_trait_p_mark <- module_trait_p
   module_trait_p_mark[module_trait_p_mark < 0.001] <- "***"
   module_trait_p_mark[module_trait_p_mark < 0.01 & module_trait_p_mark >= 0.001] <- "**"
-  module_trait_p_mark[module_trait_p_mark < 0.05 & module_trait_p_mark >= 0.01] <- "*"
-  module_trait_p_mark[module_trait_p_mark < 0.1 & module_trait_p_mark >= 0.05] <- "."
+  module_trait_p_mark[module_trait_p_mark < 0.1 & module_trait_p_mark >= 0.01] <- "*"
   module_trait_p_mark[module_trait_p_mark > 0.1] <- ""
   
-  pdf(paste0(outdir, filename, "_p_value.pdf"), width = 10, height = 10)
-  par(mar=c(9, 10, 3, 3))
+  pdf(paste0(outdir, filename, "_p_value.pdf"), width = 6, height = 10)
+  par(mar=c(12, 10, 5, 5))
   labeledHeatmap(Matrix=module_trait_cor,
-                 xLabels=names(trait_data_final),
-                 yLabels=names(ME),
-                 ySymbols=names(ME),
+                 xLabels=names(trait_data),
+                 yLabels=names(eigen_gene),
+                 ySymbols=names(eigen_gene),
                  colorLabels=TRUE,
                  colors=blueWhiteRed(30),
                  textMatrix=module_trait_p_mark,
                  setStdMargins=FALSE,
-                 cex.text=1.4,
+                 cex.lab = 1.4,
+                 cex.text=4,
+                 textAdj = c(0.5,0.8),
                  zlim=c(-1,1),
-                 main=paste("Module-trait relationships with p_value"))
+                 main=filename,
+                 cex.main = 1.2)
+  
   dev.off()
 }
 
@@ -1448,12 +1886,42 @@ trait_data_final$Sample_Name <- gsub("-", ".", trait_data_final$Sample_Name)
 # Match the samples
 rows_matched <- match(expression_df[, 1], trait_data_final$Sample_Name)
 
-trait_data_final <- trait_data_final[rows_matched, -1]
+trait_data_final <- trait_data_final[rows_matched, ]
 
-rownames(trait_data_final) <- trait_data[rows_matched, 1]
+rownames(trait_data_final) <- trait_data_final$Sample_Name
 
+trait_data_final <- trait_data_final[, -1]
+
+#Correlation with all metadata
 plot_trait_heatmap(ME, trait_data_final, expression_df, "Trait_analysis")
 
+#Only modules whose genes significantly overlap with pathway references (See Functional Enrichment Analysis) 
+plot_trait_heatmap(ME[paste0("ME", unique(res_enr_final$query.))], trait_data_final, expression_df, "Trait_analysis_Final")
+
+rownames(ME) <- expression_df[,1]
+
+#Interaction between genotype and treatment
+trait_data_copy <- trait_data
+trait_data_copy$APOE.44_vs_33_0h <- ifelse(trait_data_copy$Degradation == 0, ifelse(trait_data_copy$APOE == 0, 0, 1), NA)
+trait_data_copy$APOE.44_vs_33_8h <- ifelse(trait_data_copy$Degradation == 8, ifelse(trait_data_copy$APOE == 0, 0, 1), NA)
+trait_data_copy$APOE.44_vs_33_24h <- ifelse(trait_data_copy$Degradation == 24, ifelse(trait_data_copy$APOE == 0, 0, 1), NA)
+trait_data_copy$APOE.44_vs_33_48h <- ifelse(trait_data_copy$Degradation == 48, ifelse(trait_data_copy$APOE == 0, 0, 1), NA)
+
+trait_df <- trait_data_copy[,c(10:13)]
+colnames(trait_df) <- c("APOE 44_vs_33_0h", "APOE 44_vs_33_8h","APOE 44_vs_33_24h", "APOE 44_vs_33_48h")
+
+#Only modules whose genes significantly overlap with pathway references (See Functional Enrichment Analysis) 
+plot_trait_heatmap(ME[paste0("ME", unique(res_enr_final$query.))], trait_df, expression_df, "APOE 44 vs APOE 33_Module_Trait_Relationship")
+
+trait_uptake_df <- trait_data_copy[,c(10:12)]
+colnames(trait_uptake_df) <- c("APOE 44_vs_33_0h", "APOE 44_vs_33_8h", "APOE 44_vs_33_24h")
+
+plot_trait_heatmap(ME[paste0("ME", unique(res_enr_final$query.))], trait_uptake_df, expression_df, "APOE 44 vs APOE 33_Uptake_Module_Trait_Relationship")
+
+trait_degrade_df <- trait_data_copy[,c(12:13)]
+colnames(trait_degrade_df) <- c("APOE 44_vs_33_D0h", "APOE 44_vs_33_D24h")
+
+plot_trait_heatmap(ME[paste0("ME", unique(res_enr_final$query.))], trait_degrade_df, expression_df, "APOE 44 vs APOE 33_Degrade_Module_Trait_Relationship")
 ```
 Eigengene Heatmap across comparisons
 ```{r}
@@ -1609,7 +2077,7 @@ OR3<-function(querys,terms_list,background,min.term.size=0,max.term.size=Inf,ove
 Functional Enrichment Analysis for module specific genes
 ```{r}
 outdir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit2/"
-  
+
 #Gene-module
 module_gene_df <- read.csv(paste0(outdir, "module_genes.csv"))
 
@@ -1625,7 +2093,7 @@ pathwaysf<-pathways[pathway.size>5&pathway.size<2000]
 length(unique(pathwaysf$pathway))#12k
 
 #rm non annotated or unassigned genes
-module_gene_df<-module_gene_df[!(is.na(module_gene_df$gene_symbol)|module_gene_df$gene_symbol=='')&module_gene_df$module!='grey', ] #grey is for unassigned genes
+module_gene_df<-module_gene_df[!(is.na(module_gene_df$gene_symbol)|module_gene_df$gene_symbol==''), ]
 
 res_enr<-rbindlist(lapply(split(pathwaysf, by='subcat'),function(msigdbf)OR3(split(module_gene_df$gene_symbol,module_gene_df$module),
                                                                             terms_list = split(msigdbf$gene,msigdbf$pathway),
@@ -1636,12 +2104,151 @@ res_enr_final<-merge(res_enr[padj<0.1&n.overlap>5],unique(pathways_infos,by='ter
 
 
 write.csv(res_enr_final,paste0(outdir, 'functional_enrichment_padj0.1_overlap5.csv'), row.names = FALSE, quote = FALSE)
+
+res_enr_final <- read.csv(paste0(outdir, 'functional_enrichment_padj0.1_overlap5.csv'))
+
+#Top 3 Postive and Negative Enrichment for each module
+for (i in unique(res_enr_final$query.)) {
+  
+  df_subset <- res_enr_final[res_enr_final$query. == i, ]
+  df_subset_sorted <- df_subset[order(df_subset$padj, decreasing = F), ]
+  
+  pos_enrich <- head(df_subset_sorted, min(3, nrow(df_subset_sorted)))
+  pos_enrich$group <- "Positive Enrichment"
+  neg_enrich <- tail(df_subset_sorted, min(3, nrow(df_subset_sorted)))
+  neg_enrich$group <- "Negative Enrichment"
+  
+  plot_df <- rbind(pos_enrich, neg_enrich)
+  plot_df <- plot_df[!duplicated(plot_df$term), ]
+  
+  plot_df$group <- factor(plot_df$group, levels = c("Positive Enrichment", "Negative Enrichment"))
+  
+  ggplot(plot_df, aes(x = fold.enrichment, y = term, fill = -log10(padj))) +
+    geom_col() +
+    facet_grid(rows = vars(group), scales = "free_y") + 
+    theme_bw() +
+    theme(
+      axis.text.y = element_text(size = 8, hjust = 1),
+      panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+    ) +
+    scale_x_continuous(expand = c(0, 0), limits = c(0, max(plot_df$fold.enrichment) * 1.05)) +
+    scale_fill_gradient(name = "-log10(padj)", low = "blue", high = "red") +
+    labs(title = paste0("Pathway Enrichment in Module ", i), x = "Enrichment", y = "")
+  ggsave(paste0("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit2/Module_Pathway_Enrichment/", i, ".pdf"), height = 10, width = 15)
+}
+```
+Representative Pathways in Modules
+```{r}
+blue <- c("GOCC_PRERIBOSOME", "GOBP_MATURATION_OF_5_8S_RRNA", "GOMF_ATP_DEPENDENT_PROTEIN_FOLDING_CHAPERONE")
+brown <- c("WP_DNA_REPLICATION", "GOBP_REGULATION_OF_CHROMOSOME_CONDENSATION")
+green <- c("GOBP_T_CELL_MEDIATED_CYTOTOXICITY", "REACTOME_INTERFERON_GAMMA_SIGNALING", "GOCC_PHAGOCYTIC_VESICLE_MEMBRANE")
+magenta <- c("GOCC_NUCLEAR_PROTEIN_CONTAINING_COMPLEX")
+pink <- c("KEGG_RIBOSOME", "GOCC_RESPIRASOME", "WP_ELECTRON_TRANSPORT_CHAIN_OXPHOS_SYSTEM_IN_MITOCHONDRIA")
+red <- c("GOMF_TRANSCRIPTION_REGULATOR_ACTIVITY", "GOCC_CHROMATIN")
+salmon <- c("GOBP_RESPIRATORY_ELECTRON_TRANSPORT_CHAIN", "GOBP_OXIDATIVE_PHOSPHORYLATION", "GOBP_CELLULAR_RESPIRATION")
+turquoise <- c("KEGG_LYSOSOME", "GOMF_EXTRACELLULAR_MATRIX_STRUCTURAL_CONSTITUENT")
+yellow <- c("GOBP_CELL_FATE_COMMITMENT", "GOBP_HISTONE_DEACETYLATION")
+
+module_pathway_list <- list(blue, brown, green, magenta, pink, red, salmon, turquoise, yellow)
+colors <- list('blue', 'brown', 'green', 'magenta', 'pink', 'red', 'salmon', 'turquoise', 'yellow')
+
+module_pathway_df <- data.frame()
+for (i in 1:length(unique(res_enr_final$query.))) {
+  
+  df_subset <- res_enr_final[res_enr_final$query. == unique(res_enr_final$query.)[i] & res_enr_final$term %in% unlist(module_pathway_list[i]), ]
+  
+  module_pathway_df <- rbind(module_pathway_df, df_subset)
+}
+
+ggplot(module_pathway_df, aes(x=-log10(padj), y=term, fill=query.))+
+  geom_col() +
+  facet_grid(rows = vars(query.), scales = "free") +
+  scale_fill_manual(values = colors) +
+  geom_vline(xintercept = -log10(0.1), linetype = "solid", color = "red") + 
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 10),
+    panel.margin = unit(.05, "lines"),
+    panel.border = element_blank(),
+    strip.text = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(color = "black", linewidth = 0.2)
+  ) +
+  guides(fill = FALSE) +
+  scale_x_continuous(expand = c(0, 0), breaks = seq(0, max(-log10(module_pathway_df$padj)), by = 5)) +
+  labs(title = "", x = "-Log10(FDR)", y = "", fill = "")
+ggsave("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit2/Module_Pathway.pdf", height = 15, width = 20)
+
+yellow_more <- c("GOBP_CELL_FATE_COMMITMENT", "GOBP_CELL_FATE_SPECIFICATION", "GOBP_APPENDAGE_DEVELOPMENT", "GOBP_EMBRYONIC_DIGIT_MORPHOGENESIS", "GOCC_HISTONE_DEACETYLASE_COMPLEX", "GOBP_NEURON_PROJECTION_GUIDANCE", "GOBP_FILOPODIUM_ASSEMBLY", "KEGG_BASAL_CELL_CARCINOMA", "GOBP_EPITHELIAL_TO_MESENCHYMAL_TRANSITION", "GOBP_SYNAPSE_ASSEMBLY", "GOMF_DNA_BINDING_TRANSCRIPTION_FACTOR_ACTIVITY", "GOMF_CHROMATIN_DNA_BINDING", "REACTOME_FOXO_MEDIATED_TRANSCRIPTION")
+
+df_subset <- res_enr_final[res_enr_final$query. == "yellow" & res_enr_final$term %in% yellow_more, ]
+
+ggplot(df_subset, aes(x=-log10(padj), y=term))+
+  geom_col(fill="yellow") +
+  geom_vline(xintercept = -log10(0.1), linetype = "solid", color = "red") + 
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 10),
+    panel.margin = unit(.05, "lines"),
+    panel.border = element_blank(),
+    strip.text = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(color = "black", linewidth = 0.2)
+  ) +
+  guides(fill = FALSE) +
+  scale_x_continuous(expand = c(0, 0), breaks = seq(0, max(-log10(df_subset$padj)), by = 5)) +
+  labs(title = "", x = "-Log10(FDR)", y = "", fill = "")
+
+
+red_more <- c("GOMF_DNA_BINDING_TRANSCRIPTION_FACTOR_BINDING", "GOMF_TRANSCRIPTION_COACTIVATOR_ACTIVITY", "GOMF_NUCLEAR_RECEPTOR_BINDING", "GOBP_HISTONE_MODIFICATION", "GOMF_CHROMATIN_BINDING", "GOMF_SEQUENCE_SPECIFIC_DNA_BINDING", "GOBP_MUSCLE_STRUCTURE_DEVELOPMENT", "GOBP_CHROMATIN_REMODELING", "GOBP_CELL_JUNCTION_ORGANIZATION", "GOMF_NUCLEAR_RECEPTOR_BINDING")
+
+df_subset <- res_enr_final[res_enr_final$query. == "red" & res_enr_final$term %in% red_more, ]
+
+ggplot(df_subset, aes(x=-log10(padj), y=term))+
+  geom_col(fill="red") +
+  geom_vline(xintercept = -log10(0.1), linetype = "solid", color = "red") + 
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 10),
+    panel.margin = unit(.05, "lines"),
+    panel.border = element_blank(),
+    strip.text = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(color = "black", linewidth = 0.2)
+  ) +
+  guides(fill = FALSE) +
+  scale_x_continuous(expand = c(0, 0), breaks = seq(0, max(-log10(df_subset$padj)), by = 1)) +
+  labs(title = "", x = "-Log10(FDR)", y = "", fill = "")
+
+blue_more <- c("GOBP_TELOMERASE_RNA_LOCALIZATION", "GOBP_MRNA_MODIFICATION", "GOCC_PRERIBOSOME", "GOBP_MATURATION_OF_5_8S_RRNA", "GOMF_RNA_POLYMERASE_III_ACTIVITY", "GOCC_PROTEASOME_REGULATORY_PARTICLE", "GOBP_BASIC_AMINO_ACID_TRANSPORT", "GOBP_TRANSLATIONAL_TERMINATION")
+
+df_subset <- res_enr_final[res_enr_final$query. == "blue" & res_enr_final$term %in% blue_more, ]
+
+ggplot(df_subset, aes(x=-log10(padj), y=term))+
+  geom_col(fill="blue") +
+  geom_vline(xintercept = -log10(0.1), linetype = "solid", color = "red") + 
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 10),
+    panel.margin = unit(.05, "lines"),
+    panel.border = element_blank(),
+    strip.text = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(color = "black", linewidth = 0.2)
+  ) +
+  guides(fill = FALSE) +
+  scale_x_continuous(expand = c(0, 0), breaks = seq(0, max(-log10(df_subset$padj)), by = 5)) +
+  labs(title = "", x = "-Log10(FDR)", y = "", fill = "")
 ```
 Pathway annotation
 ```{r}
 outdir <- "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit2/Module_GO_Annotation/"
 
-res_enr_copy <- read.csv(paste0(outdir, 'functional_enrichment_padj0.1_overlap5.csv'))
+res_enr_copy <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit2/functional_enrichment_padj0.1_overlap5.csv")
 
 #Change colnames to meet Emmaplot parameters
 colnames(res_enr_copy)[1] <- "pathway"
@@ -1800,6 +2407,426 @@ eigene_plot(module_gene_df[module_gene_df$module == "red", ], "Red")
 eigene_plot(module_gene_df[module_gene_df$module == "brown", ], "Brown")
 
 ```
+Connectivity Calculation
+```{r}
+res_enr_final <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit2/functional_enrichment_padj0.1_overlap5.csv")
 
+module_yellow <- res_enr_final[res_enr_final$query. == "yellow", ]
+
+module_yellow_sorted <- module_yellow[order(module_yellow$padj, decreasing = F), ]
+
+module_leading_edges <- unlist(lapply(module_yellow_sorted$genes.overlap, function(x) {
+  unlist(strsplit(x, "\\|"))
+}))
+
+
+
+expression_df <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/normalized_expression.csv")
+
+chooseTopHubInEachModule(expression_df[,-1], module_color)
+
+connectivity_allClusters <- intramodularConnectivity.fromExpr(expression_df[,-1], module_color, 
+                                                                     corFnc = "bicor", corOptions = "use = 'p'",
+                                                                     weights = NULL,
+                                                                     distFnc = "dist", distOptions = "method = 'euclidean'",
+                                                                     networkType = "signed", power = 9,
+                                                                     scaleByMax = FALSE,
+                                                                     ignoreColors = if (is.numeric(colors)) 0 else "grey",
+                                                                     getWholeNetworkConnectivity = TRUE)
+
+rownames(connectivity_allClusters) <- colnames(expression_df[,-1])
+connectivity_allClusters$module_color <- module_color
+connect <- connectivity_allClusters[order(connectivity_allClusters$module_color,-connectivity_allClusters$kWithin),]
+
+write.csv(connect, "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit2/connectivity.csv", row.names = T, quote = F)
+```
+Epigenetic Pathways analysis in APOE 44 vs APOE 33 Degradation DESeq2
+```{r}
+#Take genes that are significantly expressed in DEA that overlap with genes in module yellow
+
+connect <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit2/connectivity.csv")
+
+module_yellow <- connect[connect$module_color == "yellow", ]
+
+library(ggplot2)
+
+ggplot(module_yellow, aes(x = kWithin)) +
+  geom_histogram(fill = "lightblue") +
+  labs(title = "Gene Intramodular Connectivity Distribution in Epigenetic Module", x = "Connectivity", y = "Gene Count") +
+  theme_minimal()
+
+ggplot(module_yellow, aes(x = kDiff)) +
+  geom_histogram(fill = "lightblue") +
+  labs(title = "Gene Module-specific Connectivity Distribution in Epigenetic Module", x = "Connectivity", y = "Gene Count") +
+  theme_minimal()
+
+apoe44_vs_apoe33_degrade_deseq_df <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/DESEQ2/APOE44_vs_APOE33_Degradation/APOE44_vs_APOE33_Degradation/Results_GTFAnnotated_NoGeneIDDuplicates.csv")
+
+deseq_subset <- apoe44_vs_apoe33_degrade_deseq_df[apoe44_vs_apoe33_degrade_deseq_df$X %in% module_yellow$X, ]
+
+deseq_subset_sig <- deseq_subset[deseq_subset$padj <= 0.05, ]
+
+
+#Get all the deseq2 results for APOE44 vs APOE33
+df_all <- data.frame()
+
+for (i in c(5,6,7,10)) {
+
+  comparison <- deseq2_conf_list[i]
+  name <- deseq2_name_list[i]
+  
+  dir <- paste0(deseq2_root, comparison)
+  subdir <- list.dirs(dir)[2]
+  df <- read.csv(paste0(subdir, "/", "Results_GTFAnnotated_NoGeneIDDuplicates.csv"))
+  df$Comparison <- comparison
+  
+  df_all <- rbind(df_all, df)
+}
+
+df_subset <- df_all[df_all$gene_name %in% deseq_subset_sig$gene_name, ]
+
+heatmap_df <- df_subset[, c(3,19,34)]
+
+heatmap_df$Comparison <- factor(heatmap_df$Comparison, levels = deseq2_conf_list[c(5,6,7,10)])
+
+pathway_matrix <- as.data.frame(reshape(heatmap_df, idvar = "gene_name", timevar = "Comparison", direction = "wide"))
+
+colnames(pathway_matrix)[2:ncol(pathway_matrix)] <- c("0 hr", "8 hr", "24 hr", "48 hr")
+
+rownames(pathway_matrix) <- pathway_matrix$gene_name
+
+pval_df <- df_subset[df_subset$gene_name %in% pathway_matrix$gene_name, c(7,19,34)]
+
+pval_matrix <- as.data.frame(reshape(pval_df, idvar = "gene_name", timevar = "Comparison", direction = "wide"))
+
+pval_matrix[, -1] <- lapply(pval_matrix[, -1], function(col) {
+  sapply(col, function(x) {
+    if (x < 0.1 & x > 0.05) {
+      return("\u2731")
+    } else if (x < 0.05) {
+      return("\u2731\u2731")
+    } else {
+      return(" ")
+    }
+  })
+})
+
+color=colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(50)
+
+pheatmap::pheatmap(as.matrix(pathway_matrix[,-1]), cluster_cols = FALSE, cluster_rows = T, color =  color, angle_col = "0", main = "", fontsize_row = 7, fontsize_col = 10, na_col = "white", cellwidth = 25, display_numbers = as.matrix(pval_matrix[,-1]), number_color = "white")
+
+module_yellow$gene_id <- module_yellow$X
+module_yellow_subset <- module_yellow[module_yellow$gene_id %in% deseq_subset_sig$X, ]
+
+gene_target_df <- merge(module_yellow_subset, deseq_subset_sig[c("X", "gene_name")], by.x = "gene_id", by.y = "X")
+
+#write.csv(gene_target_df, "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit2/gene_targets.csv", row.names = F, quote = F)
+
+library(tidyr)
+
+plot_df <- pivot_longer(gene_target_df[, c(4,6,8)], cols = c("kWithin", "kDiff"), names_to = "variable", values_to = "value")
+
+plot_df$label <- ifelse(plot_df$variable == "kWithin", "Within-Module", "Between-Module")
+
+# Plotting with ggplot2
+ggplot(plot_df, aes(x = gene_name, y = value, fill = label)) +
+  geom_col(position = "dodge") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)
+        ) +
+  labs(x = "", y = "Connectivity", fill = "", title = "DESeq2 Derived Gene Targets Connectivity")
+
+```
+Epigenetic pathway analysis in APOE 44 vs APOE 33 Degradation GSEA
+```{r}
+#Take pathways that are significant in fgsea that overlap with pathways in module yellow and take leading edges to map expression level in DEA.
+
+apoe44_vs_apoe33_degrade_gsea_df <- readRDS("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/GSEA/APOE44_vs_APOE33_Degradation/APOE44_vs_APOE33_Degradation_c2.cp.v2023.1.Hs.symbols.gmt_result.rds")
+
+res_enr_final <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit2/functional_enrichment_padj0.1_overlap5.csv")
+
+library(dplyr)
+
+gsea_subset <- apoe44_vs_apoe33_degrade_gsea_df %>%
+  filter(pathway %in% res_enr_final[res_enr_final$query. == "yellow", ]$term) %>%
+  arrange(desc(-padj)) #13 pathways
+  
+ggplot(gsea_subset, aes(x = NES, y = pathway, fill = -log10(padj))) +
+  geom_col() +
+  scale_fill_gradientn(colors = c("yellow", "red")) +
+  theme_light() +
+  theme(
+    panel.margin = unit(.05, "lines"),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+    axis.text.y = element_text(size = 14)
+  ) +
+  labs(title = 'Epigenetic Pathways Enrichment in APOE 44 vs APOE 33 D24h', x = "NES", y = "")
+
+#Take the leading edges from significant pathways, which there is only one
+gsea_gene_targets <- unlist(gsea_subset$leadingEdge[1])
+
+#See expression level
+deseq_subset <- df_all[df_all$gene_name %in% gsea_gene_targets, ]
+
+heatmap_df <- deseq_subset[, c(3,19,34)]
+
+heatmap_df$Comparison <- factor(heatmap_df$Comparison, levels = deseq2_conf_list[c(5,6,7,10)])
+
+pathway_matrix <- as.data.frame(reshape(heatmap_df, idvar = "gene_name", timevar = "Comparison", direction = "wide"))
+
+colnames(pathway_matrix)[2:ncol(pathway_matrix)] <- c("0 hr", "8 hr", "24 hr", "48 hr")
+
+rownames(pathway_matrix) <- pathway_matrix$gene_name
+
+pval_df <- deseq_subset[deseq_subset$gene_name %in% pathway_matrix$gene_name, c(7,19,34)]
+
+pval_matrix <- as.data.frame(reshape(pval_df, idvar = "gene_name", timevar = "Comparison", direction = "wide"))
+
+pval_matrix[is.na(pval_matrix)] <- 1
+
+pval_matrix[, -1] <- lapply(pval_matrix[, -1], function(col) {
+  sapply(col, function(x) {
+    if (x < 0.1 & x > 0.05) {
+      return("\u2731")
+    } else if (x < 0.05) {
+      return("\u2731\u2731")
+    } else {
+      return(" ")
+    }
+  })
+})
+
+color=colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(50)
+
+pheatmap::pheatmap(as.matrix(pathway_matrix[,-1]), cluster_cols = FALSE, cluster_rows = T, color =  color, angle_col = "0", main = "", fontsize_row = 7, fontsize_col = 10, na_col = "white", cellwidth = 25, display_numbers = as.matrix(pval_matrix[,-1]), number_color = "white")
+
+module_yellow <- connect[connect$module_color == "yellow", ]
+
+module_yellow$gene_id <- module_yellow$X
+deseq_subset <- apoe44_vs_apoe33_degrade_deseq_df[apoe44_vs_apoe33_degrade_deseq_df$X %in% module_yellow$gene_id,]
+module_yellow_merged <- merge(module_yellow, deseq_subset[c("X", "gene_name")], by.x = "gene_id", by.y = "X")
+module_yellow_subset <- module_yellow_merged[module_yellow_merged$gene_name %in% gsea_gene_targets, ]
+
+#write.csv(gsea_gene_targets, "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit2/gsea_gene_targets.csv", row.names = F, quote = F)
+
+library(tidyr)
+
+plot_df <- pivot_longer(module_yellow_subset[, c(3,5,7)], cols = c("kWithin", "kDiff"), names_to = "variable", values_to = "value")
+
+plot_df$label <- ifelse(plot_df$variable == "kWithin", "Within-Module", "Between-Module")
+
+# Plotting with ggplot2
+ggplot(plot_df, aes(x = gene_name, y = value, fill = label)) +
+  geom_col(position = "dodge") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)
+        ) +
+  labs(x = "", y = "Connectivity", fill = "", title = "GSEA Derived Gene Targets Connectivity")
+
+gene_target_df[gene_target_df$gene_name %in% gsea_gene_targets,]
+```
+Epigenetic pathway in WGCNA
+```{r}
+#Take specific pathways in WGCNA module yellow and take leading edges to map expression level in DEA
+res_enr_final <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit2/functional_enrichment_padj0.1_overlap5.csv")
+
+module_yellow <- res_enr_final[res_enr_final$query. == "yellow", ]
+
+epigenetic_pathways <- c("GOCC_HISTONE_DEACETYLASE_COMPLEX", "GOMF_DNA_BINDING_TRANSCRIPTION_FACTOR_ACTIVITY", "GOMF_CHROMATIN_DNA_BINDING", "REACTOME_FOXO_MEDIATED_TRANSCRIPTION")
+
+module_yellow_subset <- module_yellow[module_yellow$term %in% epigenetic_pathways, ]
+
+module_yellow_subset_genes <- unique(unlist(lapply(module_yellow_subset$genes.overlap, function(x) {
+  unlist(strsplit(x, "\\|"))
+}))) #176 genes
+
+apoe44_vs_apoe33_degrade_deseq_df <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/results/DESEQ2/APOE44_vs_APOE33_Degradation/APOE44_vs_APOE33_Degradation/Results_GTFAnnotated_NoGeneIDDuplicates.csv")
+
+library(dplyr)
+
+#Take only the top 50 most expressed genes
+wgcna_gene_targets <- apoe44_vs_apoe33_degrade_deseq_df %>%
+  filter(gene_name %in% module_yellow_subset_genes) %>%
+  arrange(-abs(log2FoldChange)) %>%
+  slice_head(n = 50)
+
+write.csv(wgcna_gene_targets$gene_name, "/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit2/wgcna_gene_targets.csv", row.names = F, quote = F)
+
+#Get all the deseq2 results for APOE44 vs APOE33
+df_all <- data.frame()
+
+for (i in c(5,6,7,10)) {
+
+  comparison <- deseq2_conf_list[i]
+  name <- deseq2_name_list[i]
+  
+  dir <- paste0(deseq2_root, comparison)
+  subdir <- list.dirs(dir)[2]
+  df <- read.csv(paste0(subdir, "/", "Results_GTFAnnotated_NoGeneIDDuplicates.csv"))
+  df$Comparison <- comparison
+  
+  df_all <- rbind(df_all, df)
+}
+
+
+df_subset <- df_all[df_all$gene_name %in% wgcna_gene_targets$gene_name, ]
+
+heatmap_df <- df_subset[, c(3,19,34)]
+
+heatmap_df$Comparison <- factor(heatmap_df$Comparison, levels = deseq2_conf_list[c(5,6,7,10)])
+
+pathway_matrix <- as.data.frame(reshape(heatmap_df, idvar = "gene_name", timevar = "Comparison", direction = "wide"))
+
+colnames(pathway_matrix)[2:ncol(pathway_matrix)] <- c("0 hr", "8 hr", "24 hr", "48 hr")
+
+rownames(pathway_matrix) <- pathway_matrix$gene_name
+
+pval_df <- df_subset[df_subset$gene_name %in% pathway_matrix$gene_name, c(7,19,34)]
+
+pval_matrix <- as.data.frame(reshape(pval_df, idvar = "gene_name", timevar = "Comparison", direction = "wide"))
+
+pval_matrix[, -1] <- lapply(pval_matrix[, -1], function(col) {
+  sapply(col, function(x) {
+    if (x < 0.1 & x > 0.05) {
+      return("\u2731")
+    } else if (x < 0.05) {
+      return("\u2731\u2731")
+    } else {
+      return(" ")
+    }
+  })
+})
+
+color=colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(50)
+
+pheatmap::pheatmap(as.matrix(pathway_matrix[,-1]), cluster_cols = FALSE, cluster_rows = T, color =  color, angle_col = "0", main = "", fontsize_row = 7, fontsize_col = 10, na_col = "white", cellwidth = 25, display_numbers = as.matrix(pval_matrix[,-1]), number_color = "white")
+
+connect <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit2/connectivity.csv")
+
+module_yellow_k <- connect[connect$module_color == "yellow", ]
+module_yellow_k$gene_id <- module_yellow_k$X
+module_yellow_k_subset <- module_yellow_k[module_yellow_k$gene_id %in% wgcna_gene_targets$X, ]
+
+wgcna_gene_target_df <- merge(module_yellow_k, wgcna_gene_targets[c("X", "gene_name")], by.x = "gene_id", by.y = "X")
+
+library(tidyr)
+
+plot_df <- pivot_longer(wgcna_gene_target_df[, c(4,6,8)], cols = c("kWithin", "kDiff"), names_to = "variable", values_to = "value")
+
+plot_df$label <- ifelse(plot_df$variable == "kWithin", "Within-Module", "Between-Module")
+
+# Plotting with ggplot2
+ggplot(plot_df, aes(x = gene_name, y = value, fill = label)) +
+  geom_col(position = "dodge") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)
+        ) +
+  labs(x = "", y = "Connectivity", fill = "", title = "WGCNA Derived Gene Targets Connectivity")
+```
+Gene targets Overlap
+```{r}
+#Overlap the three sets of genes that were derived using three different approaches
+DESeq2_targets <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit2/gene_targets.csv")
+
+GSEA_targets <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit2/gsea_gene_targets.csv")
+
+WGCNA_targets <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit2/wgcna_gene_targets.csv")
+
+library(ggvenn)
+
+#Venn Diagram with all cell type combined
+venn_list <- list()
+venn_list[["DESeq2_Targets"]] <- DESeq2_targets$gene_name
+venn_list[["GSEA_Targets"]] <- GSEA_targets$x
+venn_list[["WGCNA_Targets"]] <- WGCNA_targets$x
+
+ggvenn(venn_list, show_elements = F, show_percentage = F, set_name_size = 4, text_size = 4, )
+```
+Epigenetic Motif Analysis
+```{r}
+tf_df <- read.table("/projectnb/tcwlab/RefData/brainScope/GRNs/Ast_GRN.txt", sep = "\t", header = T)
+
+tf_count <- as.data.frame(table(tf_df$TF))
+
+colnames(tf_subset_count) <- c("TF", "Count")
+
+tf_df_subset <- tf_df[tf_df$TG %in% gene_target_df$gene_name | tf_df$TG %in% gsea_gene_targets,]
+
+tf_subset_count <- as.data.frame(table(tf_df_subset$TF))
+
+colnames(tf_subset_count) <- c("TF", "Count")
+
+ggplot(tf_count_df, aes(x = Count)) +
+  geom_histogram(fill = "lightblue") +
+  theme_minimal() +
+  labs(title = "TF Frequency Histogram",
+       x = "Frequency",
+       y = "TF Count")
+
+tf_count_df %>%
+  arrange(-Count)
+
+tf_df[tf_df$TG == "ST8SIA4",] #Regulated by FLI1
+
+tf_df[tf_df$TF == "FLI1",]
+
+tf_df[tf_df$TF == "MAF" & tf_df$TG %in% unlist(venn_list),] # No targets are regulated by MAF
+
+tf_df[tf_df$TF == "EBF1" & tf_df$TG %in% unlist(venn_list),]
+
+deseq_gene_target_enr <- OR3(DESeq2_targets$gene_name, terms_list = split(tf_df$TG,tf_df$TF), background=apoe44_vs_apoe33_degrade_deseq_df$gene_name)
+
+deseq_gene_target_enr %>%
+  arrange(padj)
+
+gsea_background <- unlist(lapply(gsea_subset$leadingEdge, function(x){
+  unlist(strsplit(x, "\\|"))
+}))
+
+gsea_gene_target_enr <- OR3(GSEA_targets$x, terms_list = split(tf_df$TG,tf_df$TF), background=gsea_background)
+
+gsea_gene_target_enr %>%
+  arrange(padj)
+
+wgcna_gene_target_enr <- OR3(WGCNA_targets$x, terms_list = split(tf_df$TG,tf_df$TF), background=module_yellow_subset_genes)
+
+wgcna_gene_target_enr %>%
+  arrange(padj)
+
+
+```
+Overlap Test between two epigenetic models
+```{r}
+res_enr_final <- read.csv("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/WGCNA/deepsplit2/functional_enrichment_padj0.1_overlap5.csv")
+
+module_yellow <- res_enr_final[res_enr_final$query. == "yellow", ]
+module_yellow_genes <- unique(unlist(lapply(module_yellow$genes.overlap, function(x) {
+  unlist(strsplit(x, "\\|"))
+})))
+
+module_red <- res_enr_final[res_enr_final$query. == "red", ]
+module_red_genes <- unique(unlist(lapply(module_red$genes.overlap, function(x) {
+  unlist(strsplit(x, "\\|"))
+})))
+
+
+module_yellow[module_yellow$term %in% module_red$term,]
+
+temp <- merge(module_yellow, module_red, by.x = "term", by.y = "term")
+temp[c("term", "")]
+
+
+```
+Lysosomal Pathways
+```{r}
+df <- readRDS("/projectnb/tcwlab/LabMember/mwu/Project/Astrocyte_Ab/2X100/output/GSEA/APOE33_Saturated_vs_Ctrl/APOE33_Saturated_vs_Ctrl_c2.cp.v2023.1.Hs.symbols.gmt_result.rds")
+
+terms <- c("LYSOSOME", "ENDOCYTOSIS", "PHAGOCYTOSIS")
+
+temp <- df[grep(paste(terms, collapse = "|"), df$pathway), ]
+
+saveRDS(temp, "/projectnb/tcwlab/LabMember/mwu/Lysosome_APOE44.rds")
+
+```
 
 
